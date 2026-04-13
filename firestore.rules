@@ -1,0 +1,210 @@
+rules_version = '2';
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  قواعد أمان Firestore - نظام SmartParking
+//  تم إنشاؤها بتاريخ: 2024
+// ══════════════════════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ════════════════════════════════════════════════════════════════════════
+    //  دوال مساعدة للتحقق من الهوية والصلاحيات
+    // ════════════════════════════════════════════════════════════════════════
+    
+    // التحقق من أن المستخدم مسجل دخوله
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // الحصول على بيانات المستخدم الحالي من قاعدة البيانات
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    // التحقق من أن المستخدم هو مسؤول (ADMIN)
+    function isAdmin() {
+      return isAuthenticated() && getUserData().role == 'ADMIN';
+    }
+    
+    // التحقق من أن المستخدم هو مدير (MANAGER)
+    function isManager() {
+      return isAuthenticated() && getUserData().role == 'MANAGER';
+    }
+    
+    // التحقق من أن المستخدم هو مسؤول أو مدير
+    function isStaff() {
+      return isAuthenticated() && getUserData().role in ['ADMIN', 'MANAGER'];
+    }
+    
+    // التحقق من أن المستخدم يملك الوثيقة
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // التحقق من أن المدير مخصص لمنطقة معينة
+    function isManagerOfZone(zoneId) {
+      return isManager() && getUserData().zone_id == zoneId;
+    }
+    
+    // التحقق من صحة البريد الإلكتروني
+    function isValidEmail(email) {
+      return email is string && 
+             email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+    
+    // التحقق من أن الطلب لا يحتوي على حقول محظورة
+    function notUpdatingRestrictedFields() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['role', 'created_at']);
+    }
+    
+    // التحقق من الطابع الزمني للخادم
+    function hasValidTimestamp(field) {
+      return request.resource.data[field] == request.time;
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  USERS - المستخدمون
+    // ════════════════════════════════════════════════════════════════════════
+    match /users/{userId} {
+      // القراءة: المسؤول يقرأ الكل، المستخدم يقرأ بياناته فقط
+      allow read: if isAdmin() || isOwner(userId);
+      
+      // المدير يمكنه قراءة بياناته الخاصة
+      allow read: if isManager() && isOwner(userId);
+      
+      // الإنشاء: المسؤول فقط يمكنه إنشاء مستخدمين جدد
+      // أو المستخدم الجديد نفسه عند التسجيل (لـ Firebase Auth)
+      allow create: if isAdmin() || 
+        (isAuthenticated() && request.auth.uid == userId && 
+         request.resource.data.role in ['MANAGER']);
+      
+      // التحديث: 
+      // - المسؤول يمكنه تحديث أي مستخدم
+      // - المستخدم يمكنه تحديث بياناته (ماعدا الدور)
+      allow update: if isAdmin() || 
+        (isOwner(userId) && notUpdatingRestrictedFields());
+      
+      // الحذف: المسؤول فقط
+      allow delete: if isAdmin();
+      
+      // قواعد التحقق من البيانات
+      // التأكد من أن الدور صحيح عند الإنشاء
+      allow create: if request.resource.data.role in ['ADMIN', 'MANAGER'] &&
+                       isValidEmail(request.resource.data.email);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  ZONES - المناطق
+    // ════════════════════════════════════════════════════════════════════════
+    match /zones/{zoneId} {
+      // القراءة: أي موظف يمكنه قراءة المناطق
+      allow read: if isStaff();
+      
+      // الإنشاء والتحديث والحذف: المسؤول فقط
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+      
+      // ════════════════════════════════════════════════════════════════════
+      //  PARKING_SPOTS - أماكن الركن (مجموعة فرعية)
+      // ════════════════════════════════════════════════════════════════════
+      match /parking_spots/{spotId} {
+        // القراءة: أي موظف
+        allow read: if isStaff();
+        
+        // الإنشاء: المسؤول فقط
+        allow create: if isAdmin();
+        
+        // التحديث: 
+        // - المسؤول يمكنه تحديث أي شيء
+        // - المدير المخصص للمنطقة يمكنه تحديث الحالة فقط
+        allow update: if isAdmin() || 
+          (isManagerOfZone(zoneId) && 
+           request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'updated_at']));
+        
+        // الحذف: المسؤول فقط
+        allow delete: if isAdmin();
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  RESERVATIONS - الحجوزات
+    // ════════════════════════════════════════════════════════════════════════
+    match /reservations/{reservationId} {
+      // القراءة: 
+      // - المسؤول يقرأ الكل
+      // - المدير يقرأ حجوزات منطقته فقط
+      allow read: if isAdmin() || 
+        (isManager() && resource.data.zone_id == getUserData().zone_id);
+      
+      // الإنشاء: أي موظف (لإنشاء حجز للعميل)
+      allow create: if isStaff() && 
+        request.resource.data.keys().hasAll(['user_name', 'phone', 'zone_id', 'spot_id', 'status']);
+      
+      // التحديث:
+      // - المسؤول يمكنه تحديث أي حجز
+      // - المدير يمكنه تحديث حجوزات منطقته (تأكيد، إلغاء، إتمام)
+      allow update: if isAdmin() || 
+        (isManager() && 
+         resource.data.zone_id == getUserData().zone_id &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['status', 'end_time', 'total_price', 'total_cost', 'updated_at']));
+      
+      // الحذف: المسؤول فقط
+      allow delete: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  FEEDBACKS - التقييمات والملاحظات
+    // ════════════════════════════════════════════════════════════════════════
+    match /feedbacks/{feedbackId} {
+      // القراءة: المسؤول فقط
+      allow read: if isAdmin();
+      
+      // الإنشاء: أي شخص (حتى غير المسجلين) - للعملاء
+      allow create: if true;
+      
+      // التحديث: المسؤول فقط (لتغيير حالة القراءة مثلاً)
+      allow update: if isAdmin();
+      
+      // الحذف: المسؤول فقط
+      allow delete: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  SECURITY_LOGS - سجلات الأمان (اختياري - إذا أردت تخزينها في Firestore)
+    // ════════════════════════════════════════════════════════════════════════
+    match /security_logs/{logId} {
+      // القراءة: المسؤول فقط
+      allow read: if isAdmin();
+      
+      // الإنشاء: أي مستخدم مسجل (لتسجيل أحداث الأمان)
+      allow create: if isAuthenticated();
+      
+      // لا يمكن تعديل أو حذف سجلات الأمان
+      allow update, delete: if false;
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  SYSTEM_CONFIG - إعدادات النظام (اختياري)
+    // ════════════════════════════════════════════════════════════════════════
+    match /system_config/{configId} {
+      // القراءة: أي موظف
+      allow read: if isStaff();
+      
+      // الكتابة: المسؤول فقط
+      allow write: if isAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  قاعدة الرفض الافتراضية - أي مجموعة غير معرّفة
+    // ════════════════════════════════════════════════════════════════════════
+    match /{document=**} {
+      // رفض أي وصول غير محدد صراحة
+      allow read, write: if false;
+    }
+  }
+}
