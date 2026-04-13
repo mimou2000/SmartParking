@@ -7,6 +7,7 @@ import { db, auth } from '../firebase'
 import { initializeApp, getApps } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
+import { securityLogger, SECURITY_EVENTS } from '../utils/security'
 import {
     collection, doc,
     getDocs, getDoc, addDoc, setDoc, updateDoc, deleteDoc,
@@ -108,7 +109,13 @@ export const authAPI = {
             throw new Error('فشل إرسال البريد الإلكتروني')
         }
 
-        return { message: 'تم إرسال كلمة السر المؤقتة إلى بريدك الإلكتروني ✅' }
+        // تسجيل طلب استعادة كلمة المرور
+        securityLogger.log(SECURITY_EVENTS.PASSWORD_RESET_REQUEST, {
+            email,
+            success: true
+        })
+
+        return { message: 'تم إرسال كلمة السر المؤقتة إلى بريدك الإلكتروني' }
     },
 }
 
@@ -283,6 +290,14 @@ export const managersAPI = {
             created_at:    serverTimestamp(),
         })
         await secondaryAuth.signOut()
+        
+        // تسجيل إنشاء مدير جديد
+        securityLogger.log(SECURITY_EVENTS.SENSITIVE_ACTION, {
+            action: 'create_manager',
+            targetEmail: email,
+            targetUserId: cred.user.uid
+        })
+        
         return { ok: true, user_id: cred.user.uid }
     },
 
@@ -300,6 +315,13 @@ export const managersAPI = {
                         const cred = await signInWithEmailAndPassword(secondaryAuth, email, oldPassword)
                         await updatePassword(cred.user, password)
                         await secondaryAuth.signOut()
+                        
+                        // تسجيل تغيير كلمة المرور
+                        securityLogger.log(SECURITY_EVENTS.PASSWORD_CHANGE, {
+                            action: 'password_changed_by_admin',
+                            targetUserId: user_id,
+                            targetEmail: email
+                        })
                     } catch (e) {
                         console.error('فشل تغيير كلمة السر في Auth:', e)
                     }
@@ -369,7 +391,20 @@ export const usersAPI = {
     },
 
     delete: async (userId) => {
+        // تسجيل حذف المستخدم قبل الحذف
+        const userDoc = await getDoc(doc(db, 'users', userId))
+        const userData = userDoc.exists() ? userDoc.data() : {}
+        
         await deleteDoc(doc(db, 'users', userId))
+        
+        // تسجيل الحدث الأمني
+        securityLogger.log(SECURITY_EVENTS.SENSITIVE_ACTION, {
+            action: 'delete_user',
+            targetUserId: userId,
+            targetEmail: userData.email,
+            targetRole: userData.role
+        })
+        
         return { ok: true }
     },
 }

@@ -10,7 +10,7 @@ import PageReports from '../pages_admin_dashboard/PageReports'
 import { useData } from '../context/useData'
 import { db } from '../firebase'
 import { collection, onSnapshot } from 'firebase/firestore'
-import PageFeedback from '../pages_admin_dashboard/PageFeedback'
+import PageFeedback from '../pages_admin_dashboard/Pagefeedback'
 
 const PAGE_CONFIG = {
   stats:    { label: 'الإحصائيات',        icon: 'fa-chart-bar' },

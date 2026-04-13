@@ -3,6 +3,7 @@
 // ══════════════════════════════════════════════════════
 import React, { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/useAuth.js'
+import SecurityLogViewer from './SecurityLogViewer'
 
 const NOTIF_COLORS = {
   reservation_new:       '#6366f1',
@@ -27,9 +28,11 @@ export default function Topbar({ title, icon, notifications = [], onClearAll }) 
   const { user }                    = useAuth()
   const [time,       setTime]       = useState(new Date())
   const [showNotifs, setShowNotifs] = useState(false)
+  const [showSecurityLog, setShowSecurityLog] = useState(false)
   const panelRef                    = useRef(null)
 
   const isManager = user?.role === 'MANAGER'
+  const isAdmin = user?.role === 'ADMIN'
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000)
@@ -122,6 +125,25 @@ export default function Topbar({ title, icon, notifications = [], onClearAll }) 
 
           {isManager && <div style={styles.divider} />}
 
+          {/* زر سجل الأمان — للمسؤول فقط */}
+          {isAdmin && (
+              <>
+                <button
+                    style={{ 
+                      ...styles.iconBtn, 
+                      background: showSecurityLog ? '#fef2f2' : '#f8fafc', 
+                      borderColor: showSecurityLog ? '#ef4444' : 'var(--border)', 
+                      color: showSecurityLog ? '#ef4444' : 'var(--muted)' 
+                    }}
+                    onClick={() => setShowSecurityLog(true)}
+                    title="سجل الأمان"
+                >
+                  <i className="fas fa-shield-alt" />
+                </button>
+                <div style={styles.divider} />
+              </>
+          )}
+
           {/* User */}
           <div style={styles.userChip}>
             <div className="avatar" style={{
@@ -140,6 +162,12 @@ export default function Topbar({ title, icon, notifications = [], onClearAll }) 
         </div>
 
         <style>{`@keyframes notifSlideIn { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }`}</style>
+        
+        {/* نافذة سجل الأمان */}
+        <SecurityLogViewer 
+          isOpen={showSecurityLog} 
+          onClose={() => setShowSecurityLog(false)} 
+        />
       </header>
   )
 }

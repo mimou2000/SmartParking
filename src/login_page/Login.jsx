@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/useAuth.js'          // ✅ إصلاح: من useAuth.js
-import { authAPI } from '../api/firebaseApi.js'       // ✅ إصلاح: مسار صحيح
+import { useAuth } from '../context/useAuth.js'
+import { authAPI } from '../api/firebaseApi.js'
+import { securityLogger, SECURITY_EVENTS, passwordValidator } from '../utils/security'
 
 export default function Login() {
-    const { login, loading, error, setError } = useAuth()
+    const { login, loading, error, setError, isLocked, lockRemainingTime } = useAuth()
     const navigate = useNavigate()
 
     const [email, setEmail]       = useState('')
@@ -161,7 +162,22 @@ export default function Login() {
                         <p style={styles.sub}>سجّل دخولك للوصول إلى لوحة التحكم</p>
                     </div>
 
-                    {error && (
+                    {/* رسالة القفل الأمني */}
+                    {isLocked && (
+                        <div style={styles.lockAlert}>
+                            <div style={styles.lockIcon}>
+                                <i className="fas fa-lock" />
+                            </div>
+                            <div>
+                                <div style={styles.lockTitle}>تم قفل الحساب مؤقتًا</div>
+                                <div style={styles.lockText}>
+                                    حاول مرة أخرى بعد {Math.ceil(lockRemainingTime / 60)} دقيقة
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {error && !isLocked && (
                         <div style={styles.alert}>
                             <i className="fas fa-exclamation-circle" />{error}
                         </div>
@@ -225,12 +241,22 @@ export default function Login() {
                         <button
                             type="submit"
                             className="btn btn-primary"
-                            style={{ width: '100%', justifyContent: 'center', padding: '13px', marginTop: '6px', fontSize: '1rem' }}
-                            disabled={loading}
+                            style={{ 
+                                width: '100%', 
+                                justifyContent: 'center', 
+                                padding: '13px', 
+                                marginTop: '6px', 
+                                fontSize: '1rem',
+                                opacity: isLocked ? 0.5 : 1,
+                                cursor: isLocked ? 'not-allowed' : 'pointer'
+                            }}
+                            disabled={loading || isLocked}
                         >
                             {loading
                                 ? <><div className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} />جاري التحقق...</>
-                                : <><i className="fas fa-sign-in-alt" /> تسجيل الدخول</>
+                                : isLocked 
+                                    ? <><i className="fas fa-lock" /> الحساب مقفل</>
+                                    : <><i className="fas fa-sign-in-alt" /> تسجيل الدخول</>
                             }
                         </button>
                     </form>
@@ -282,6 +308,10 @@ const styles = {
     welcome: { fontSize: '1.7rem', fontWeight: 900, color: '#0f172a', marginBottom: 4 },
     sub:    { fontSize: '0.88rem', color: '#64748b' },
     alert:  { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 10, marginBottom: 16, background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', fontSize: '0.85rem', fontWeight: 600 },
+    lockAlert: { display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', borderRadius: 12, marginBottom: 16, background: 'linear-gradient(135deg, #fef3c7, #fde68a)', border: '1px solid #fbbf24', animation: 'pulse 2s infinite' },
+    lockIcon: { width: 44, height: 44, borderRadius: 10, background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '1.1rem', flexShrink: 0 },
+    lockTitle: { fontSize: '0.9rem', fontWeight: 800, color: '#92400e', marginBottom: 2 },
+    lockText: { fontSize: '0.8rem', color: '#b45309', fontWeight: 600 },
     form:   { display: 'flex', flexDirection: 'column' },
     inputWrap: { position: 'relative' },
     inputIcon: { position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.88rem' },
