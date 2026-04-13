@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app"
 import { getFirestore } from "firebase/firestore"
-import { getAuth } from "firebase/auth"
+import { getAuth, GoogleAuthProvider } from "firebase/auth"
 
 const firebaseConfig = {
   apiKey: "AIzaSyAMiyQTVzxI8pisDXbxCwgfH6mZsybzKOA",
@@ -16,3 +16,9 @@ const app = initializeApp(firebaseConfig)
 
 export const db   = getFirestore(app)  // قاعدة البيانات
 export const auth = getAuth(app)       // تسجيل الدخول
+export const googleProvider = new GoogleAuthProvider()  // Google Auth
+
+// إعدادات Google Provider
+googleProvider.setCustomParameters({
+    prompt: 'select_account'  // يظهر دائما نافذة اختيار الحساب
+})

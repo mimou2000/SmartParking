@@ -1,8 +1,9 @@
 // src/context/AuthProvider.jsx
 import React, { useState, useEffect } from 'react'
-import { auth, db } from '../firebase'
+import { auth, db, googleProvider } from '../firebase'
 import {
     signInWithEmailAndPassword,
+    signInWithPopup,
     signOut,
     onAuthStateChanged,
     updatePassword,
@@ -190,6 +191,123 @@ export function AuthProvider({ children }) {
         }
     }
 
+    // ── تسجيل الدخول عبر Google ──
+    const loginWithGoogle = async () => {
+        setLoading(true)
+        setError('')
+        
+        try {
+            const result = await signInWithPopup(auth, googleProvider)
+            const firebaseUser = result.user
+            
+            // التحقق من وجود المستخدم في قاعدة البيانات
+            const userDocRef = doc(db, 'users', firebaseUser.uid)
+            const userDoc = await getDoc(userDocRef)
+            
+            let userData
+            let isNewUser = false
+            
+            if (!userDoc.exists()) {
+                // مستخدم جديد - إنشاء سجل له
+                isNewUser = true
+                userData = {
+                    email: firebaseUser.email,
+                    full_name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'مستخدم',
+                    role: 'PENDING', // في انتظار موافقة المسؤول
+                    photo_url: firebaseUser.photoURL || null,
+                    auth_provider: 'google',
+                    created_at: serverTimestamp(),
+                    updated_at: serverTimestamp(),
+                }
+                await setDoc(userDocRef, userData)
+                
+                // تسجيل إنشاء حساب جديد
+                securityLogger.log(SECURITY_EVENTS.SENSITIVE_ACTION, {
+                    action: 'google_signup',
+                    userId: firebaseUser.uid,
+                    email: firebaseUser.email,
+                    provider: 'google'
+                })
+            } else {
+                userData = userDoc.data()
+            }
+            
+            // التحقق من الدور - إذا كان PENDING لا يمكنه الدخول
+            if (userData.role === 'PENDING') {
+                await signOut(auth)
+                setError('حسابك في انتظار الموافقة من المسؤول')
+                setLoading(false)
+                return { ok: false, pending: true }
+            }
+            
+            // التحقق من أن الدور صالح (ADMIN أو MANAGER)
+            if (!['ADMIN', 'MANAGER'].includes(userData.role)) {
+                await signOut(auth)
+                setError('ليس لديك صلاحية للدخول إلى لوحة التحكم')
+                setLoading(false)
+                return { ok: false, unauthorized: true }
+            }
+            
+            // تسجيل النجاح
+            rateLimiter.recordAttempt(true)
+            
+            // التحقق من الجهاز الجديد
+            const deviceStatus = deviceFingerprint.registerDevice()
+            if (deviceStatus.isNew) {
+                securityLogger.log(SECURITY_EVENTS.NEW_DEVICE_LOGIN, {
+                    email: firebaseUser.email,
+                    fingerprint: deviceStatus.fingerprint,
+                    provider: 'google'
+                })
+            }
+            
+            // إنشاء جلسة جديدة
+            sessionManager.createSession(firebaseUser.uid, firebaseUser.email, userData.role)
+            
+            // تسجيل الدخول الناجح
+            securityLogger.log(SECURITY_EVENTS.LOGIN_SUCCESS, {
+                userId: firebaseUser.uid,
+                email: firebaseUser.email,
+                role: userData.role,
+                provider: 'google',
+                isNewUser
+            })
+            
+            // تحديث آخر دخول
+            await updateDoc(userDocRef, {
+                last_login: serverTimestamp(),
+                updated_at: serverTimestamp()
+            })
+            
+            setLoading(false)
+            return { ok: true, role: userData.role, isNewUser }
+            
+        } catch (err) {
+            console.error('Google login error:', err)
+            
+            // تسجيل الفشل
+            securityLogger.log(SECURITY_EVENTS.LOGIN_FAILED, {
+                provider: 'google',
+                errorCode: err.code,
+                errorMessage: err.message
+            })
+            
+            // رسائل خطأ مفهومة
+            let errorMsg = 'حدث خطأ أثناء تسجيل الدخول'
+            if (err.code === 'auth/popup-closed-by-user') {
+                errorMsg = 'تم إلغاء تسجيل الدخول'
+            } else if (err.code === 'auth/popup-blocked') {
+                errorMsg = 'يرجى السماح بالنوافذ المنبثقة'
+            } else if (err.code === 'auth/account-exists-with-different-credential') {
+                errorMsg = 'هذا البريد مسجل بطريقة مختلفة'
+            }
+            
+            setError(errorMsg)
+            setLoading(false)
+            return { ok: false }
+        }
+    }
+
     const changePasswordAfterReset = async (newPassword) => {
         if (!user || !auth.currentUser) return { ok: false, message: 'لا يوجد مستخدم' }
         try {
@@ -234,6 +352,7 @@ export function AuthProvider({ children }) {
         <AuthContext.Provider value={{ 
             user, 
             login, 
+            loginWithGoogle,
             logout, 
             loading, 
             error, 
