@@ -6,6 +6,7 @@ import { DataProvider } from './context/DataProvider.jsx'
 import Login from './login_page/Login.jsx'
 import AdminDashboard from './layouts/AdminDashboard'
 import ManagerDashboard from './layouts/ManagerDashboard'
+import SecurityWrapper from './components/SecurityWrapper'
 
 function PrivateRoute({ children, requiredRole }) {
     const { user } = useAuth()
@@ -14,7 +15,12 @@ function PrivateRoute({ children, requiredRole }) {
         return <Navigate to={user.role === 'ADMIN' ? '/admin' : '/manager'} replace />
     }
     // DataProvider داخل PrivateRoute — يُحمَّل فقط بعد تسجيل الدخول
-    return <DataProvider>{children}</DataProvider>
+    // SecurityWrapper يوفر حماية الجلسة والتحذير من انتهاء الصلاحية
+    return (
+        <SecurityWrapper>
+            <DataProvider>{children}</DataProvider>
+        </SecurityWrapper>
+    )
 }
 
 function RootRedirect() {
