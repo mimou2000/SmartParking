@@ -85,7 +85,11 @@ export function DataProvider({ children }) {
         init()
 
         const unsubZones = realtimeAPI.subscribeZones((updatedZones) => setZones(updatedZones))
-        const unsubRes   = realtimeAPI.subscribeReservations((updatedRes) => setReservations(updatedRes))
+        // ✅ تمرير zone_id للمدير حتى يعمل الـ query مع Firestore Rules
+        const unsubRes   = realtimeAPI.subscribeReservations(
+            (updatedRes) => setReservations(updatedRes),
+            user?.role === 'MANAGER' ? user?.zone_id : null
+        )
         const unsubSpots = realtimeAPI.subscribeSpots(
             (updatedSpots) => setSpots(updatedSpots),
             user?.role === 'MANAGER' ? user?.zone_id : null

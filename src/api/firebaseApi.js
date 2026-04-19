@@ -290,14 +290,14 @@ export const managersAPI = {
             created_at:    serverTimestamp(),
         })
         await secondaryAuth.signOut()
-        
+
         // تسجيل إنشاء مدير جديد
         securityLogger.log(SECURITY_EVENTS.SENSITIVE_ACTION, {
             action: 'create_manager',
             targetEmail: email,
             targetUserId: cred.user.uid
         })
-        
+
         return { ok: true, user_id: cred.user.uid }
     },
 
@@ -315,7 +315,7 @@ export const managersAPI = {
                         const cred = await signInWithEmailAndPassword(secondaryAuth, email, oldPassword)
                         await updatePassword(cred.user, password)
                         await secondaryAuth.signOut()
-                        
+
                         // تسجيل تغيير كلمة المرور
                         securityLogger.log(SECURITY_EVENTS.PASSWORD_CHANGE, {
                             action: 'password_changed_by_admin',
@@ -394,9 +394,9 @@ export const usersAPI = {
         // تسجيل حذف المستخدم قبل الحذف
         const userDoc = await getDoc(doc(db, 'users', userId))
         const userData = userDoc.exists() ? userDoc.data() : {}
-        
+
         await deleteDoc(doc(db, 'users', userId))
-        
+
         // تسجيل الحدث الأمني
         securityLogger.log(SECURITY_EVENTS.SENSITIVE_ACTION, {
             action: 'delete_user',
@@ -404,7 +404,7 @@ export const usersAPI = {
             targetEmail: userData.email,
             targetRole: userData.role
         })
-        
+
         return { ok: true }
     },
 }
@@ -539,13 +539,24 @@ export const realtimeAPI = {
             callback(snap.docs.map(d => ({ zone_id: d.id, ...d.data() })))
         }),
 
-    subscribeReservations: (callback) =>
-        onSnapshot(
-            query(collection(db, 'reservations'), orderBy('created_at', 'desc')),
+    subscribeReservations: (callback, zoneId = null) => {
+        // ✅ إذا كان المستخدم MANAGER نُقيّد الـ query بـ zone_id
+        // هذا ضروري لأن Firestore Rules لا تسمح بقراءة المجموعة كاملة للمدير
+        const constraints = zoneId
+            ? [where('zone_id', '==', zoneId), orderBy('created_at', 'desc')]
+            : [orderBy('created_at', 'desc')]
+
+        return onSnapshot(
+            query(collection(db, 'reservations'), ...constraints),
             (snap) => {
                 callback(snap.docs.map(d => ({ reservation_id: d.id, ...d.data() })))
+            },
+            (err) => {
+                console.error('subscribeReservations error:', err)
+                callback([])
             }
-        ),
+        )
+    },
 
     subscribeSpots: (callback, zoneId = null) => {
         if (!zoneId) { callback([]); return () => {} }
