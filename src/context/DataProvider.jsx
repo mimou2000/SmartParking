@@ -113,7 +113,17 @@ export function DataProvider({ children }) {
 
     const managersEnriched = users.filter(u => u.role === 'MANAGER').map(u => {
         const extra = managers.find(m => m.user_id === u.user_id)
-        return extra ? { ...u, ...extra } : u
+        if (!extra) return u
+
+        // ✅ إصلاح: دمج آمن — لا نكتب undefined فوق قيمة موجودة
+        const merged = { ...extra, ...u }
+
+        // ضمان حقول الموقف من أي مصدر متاح
+        merged.zone_id       = u.zone_id       || extra.zone_id       || null
+        merged.zone_name     = u.zone_name     || extra.zone_name     || ''
+        merged.assigned_zone = u.assigned_zone || extra.assigned_zone || u.zone_id || extra.zone_id || null
+
+        return merged
     })
     const managersDisplay = managersEnriched.length > 0 ? managersEnriched : managers
 
@@ -187,6 +197,15 @@ export function DataProvider({ children }) {
     const updateUser = async (userId, data) => {
         const res = await usersAPI.edit({ user_id: userId, ...data })
         if (!res.ok) throw new Error(res.message)
+        // إذا كانت البيانات تتضمن zone → نحدّث managers أيضاً
+        if (data.zone_id !== undefined || data.assigned_zone !== undefined) {
+            await managersAPI.edit({
+                user_id:       userId,
+                zone_id:       data.zone_id       ?? data.assigned_zone ?? null,
+                assigned_zone: data.assigned_zone ?? data.zone_id       ?? null,
+                zone_name:     data.zone_name     ?? '',
+            }).catch(() => {}) // silent: قد لا يكون في collection managers
+        }
         await fetchUsers(); await fetchManagers()
         return res
     }

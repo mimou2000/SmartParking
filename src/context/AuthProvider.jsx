@@ -26,13 +26,14 @@ export function AuthProvider({ children }) {
     const [isLocked, setIsLocked] = useState(false)
     const [lockRemainingTime, setLockRemainingTime] = useState(0)
 
-    // دالة مساعدة لإنشاء وثيقة المستخدم إذا لم تكن موجودة
+    // ✅ الإصلاح: تحديد الأدوار الصحيحة المدعومة في Firestore Rules
+    //    ADMIN | MANAGER | DRIVER  — لا يوجد CUSTOMER
     const ensureUserDocument = async (firebaseUser) => {
         const userDocRef = doc(db, 'users', firebaseUser.uid)
         const docSnap = await getDoc(userDocRef)
         if (!docSnap.exists()) {
-            // تحديد الدور: إذا كان البريد يحتوي على admin@ أو manager@ يمكن تعيينه تلقائياً
-            let role = 'CUSTOMER'
+            // تحديد الدور بناءً على البريد الإلكتروني
+            let role = 'DRIVER' // ✅ الدور الافتراضي هو DRIVER (كان CUSTOMER وهو خاطئ)
             if (firebaseUser.email?.includes('admin')) role = 'ADMIN'
             else if (firebaseUser.email?.includes('manager')) role = 'MANAGER'
 
@@ -129,15 +130,15 @@ export function AuthProvider({ children }) {
 
         setLoading(true)
         setError('')
-        
+
         const sanitizedEmail = sanitizer.email(email)
-        
+
         try {
             await signInWithEmailAndPassword(auth, sanitizedEmail, password)
-            
+
             // تسجيل النجاح وإعادة تعيين المحاولات
             rateLimiter.recordAttempt(true)
-            
+
             // التحقق من الجهاز الجديد
             const deviceStatus = deviceFingerprint.registerDevice()
             if (deviceStatus.isNew) {
@@ -146,31 +147,40 @@ export function AuthProvider({ children }) {
                     fingerprint: deviceStatus.fingerprint
                 })
             }
-            
+
             // إنشاء جلسة جديدة
             const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid))
             const userData = userDoc.data()
             sessionManager.createSession(auth.currentUser.uid, sanitizedEmail, userData?.role)
-            
+
+            // ✅ التحقق من أن الدور مسموح بالدخول للوحة الإدارة
+            const allowedRoles = ['ADMIN', 'MANAGER']
+            if (!allowedRoles.includes(userData?.role)) {
+                await signOut(auth)
+                setError('ليس لديك صلاحية الوصول للوحة الإدارة')
+                setLoading(false)
+                return { ok: false, role: userData?.role }
+            }
+
             // تسجيل الدخول الناجح
             securityLogger.log(SECURITY_EVENTS.LOGIN_SUCCESS, {
                 userId: auth.currentUser.uid,
                 email: sanitizedEmail,
                 role: userData?.role
             })
-            
+
             setLoading(false)
             return { ok: true, role: userData?.role }
         } catch (err) {
             // تسجيل المحاولة الفاشلة
             const attemptResult = rateLimiter.recordAttempt(false)
-            
+
             securityLogger.log(SECURITY_EVENTS.LOGIN_FAILED, {
                 email: sanitizedEmail,
                 errorCode: err.code,
                 remainingAttempts: attemptResult.remaining
             })
-            
+
             if (attemptResult.locked) {
                 setIsLocked(true)
                 securityLogger.log(SECURITY_EVENTS.ACCOUNT_LOCKED, {
@@ -179,12 +189,12 @@ export function AuthProvider({ children }) {
                 })
                 setError(`تم قفل الحساب بسبب محاولات تسجيل دخول كثيرة. حاول بعد 15 دقيقة`)
             } else {
-                const errorMsg = err.code === 'auth/invalid-credential' 
-                    ? `البريد أو كلمة المرور خاطئة (متبقي ${attemptResult.remaining} محاولات)` 
+                const errorMsg = err.code === 'auth/invalid-credential'
+                    ? `البريد أو كلمة المرور خاطئة (متبقي ${attemptResult.remaining} محاولات)`
                     : 'خطأ في الاتصال'
                 setError(errorMsg)
             }
-            
+
             setLoading(false)
             return { ok: false, locked: attemptResult.locked }
         }
@@ -215,11 +225,11 @@ export function AuthProvider({ children }) {
                 email: user.email
             })
         }
-        
+
         // تدمير الجلسة
         sessionManager.destroySession()
-        
-        try { await signOut(auth) } catch {}
+
+        try { await signOut(auth) } catch { }
         setUser(null)
         setMustChangePassword(false)
         setError('')
@@ -231,14 +241,14 @@ export function AuthProvider({ children }) {
     }
 
     return (
-        <AuthContext.Provider value={{ 
-            user, 
-            login, 
-            logout, 
-            loading, 
-            error, 
-            setError, 
-            mustChangePassword, 
+        <AuthContext.Provider value={{
+            user,
+            login,
+            logout,
+            loading,
+            error,
+            setError,
+            mustChangePassword,
             changePasswordAfterReset,
             isLocked,
             lockRemainingTime
