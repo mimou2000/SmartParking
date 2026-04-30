@@ -207,6 +207,28 @@ export function AuthProvider({ children }) {
         }
     }
 
+    // تسجيل الدخول كضيف
+    const loginAsGuest = () => {
+        const guestUser = {
+            uid: 'guest_' + Date.now(),
+            email: 'guest@smartparking.com',
+            full_name: 'زائر',
+            role: 'GUEST',
+            isGuest: true
+        }
+        
+        securityLogger.log(SECURITY_EVENTS.LOGIN_SUCCESS, {
+            userId: guestUser.uid,
+            email: guestUser.email,
+            role: 'GUEST',
+            isGuest: true
+        })
+        
+        setUser(guestUser)
+        setLoading(false)
+        return { ok: true, role: 'GUEST' }
+    }
+
     const logout = async () => {
         // تسجيل حدث الخروج
         if (user) {
@@ -219,7 +241,10 @@ export function AuthProvider({ children }) {
         // تدمير الجلسة
         sessionManager.destroySession()
         
-        try { await signOut(auth) } catch {}
+        // إذا كان ضيفاً، لا نحتاج signOut
+        if (!user?.isGuest) {
+            try { await signOut(auth) } catch {}
+        }
         setUser(null)
         setMustChangePassword(false)
         setError('')
@@ -234,6 +259,7 @@ export function AuthProvider({ children }) {
         <AuthContext.Provider value={{ 
             user, 
             login, 
+            loginAsGuest,
             logout, 
             loading, 
             error, 

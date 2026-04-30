@@ -5,7 +5,7 @@ import { authAPI } from '../api/firebaseApi.js'
 import { securityLogger, SECURITY_EVENTS, passwordValidator } from '../utils/security'
 
 export default function Login() {
-    const { login, loading, error, setError, isLocked, lockRemainingTime } = useAuth()
+    const { login, loginAsGuest, loading, error, setError, isLocked, lockRemainingTime } = useAuth()
     const navigate = useNavigate()
 
     const [email, setEmail]       = useState('')
@@ -34,6 +34,14 @@ export default function Login() {
         if (res.ok) {
             if (res.mustChangePassword) navigate('/change-password')
             else navigate(res.role === 'ADMIN' ? '/admin' : '/manager')
+        }
+    }
+
+    // ── الدخول كضيف ──
+    const handleGuestLogin = () => {
+        const res = loginAsGuest()
+        if (res.ok) {
+            navigate('/guest')
         }
     }
 
@@ -259,6 +267,23 @@ export default function Login() {
                                     : <><i className="fas fa-sign-in-alt" /> تسجيل الدخول</>
                             }
                         </button>
+
+                        {/* فاصل */}
+                        <div style={styles.divider}>
+                            <span style={styles.dividerLine}></span>
+                            <span style={styles.dividerText}>أو</span>
+                            <span style={styles.dividerLine}></span>
+                        </div>
+
+                        {/* زر الدخول كضيف */}
+                        <button
+                            type="button"
+                            onClick={handleGuestLogin}
+                            style={styles.guestBtn}
+                        >
+                            <i className="fas fa-user-secret" style={{ marginLeft: 8 }} />
+                            الدخول كضيف
+                        </button>
                     </form>
                 </div>
 
@@ -332,4 +357,23 @@ const styles = {
     featureLabel: { fontSize: '0.88rem', fontWeight: 700, color: 'white' },
     featureDesc:  { fontSize: '0.72rem', color: 'rgba(255,255,255,0.6)' },
     copyright:    { fontSize: '0.72rem', color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginTop: 20 },
+    divider: { display: 'flex', alignItems: 'center', gap: 12, margin: '16px 0' },
+    dividerLine: { flex: 1, height: 1, background: '#e2e8f0' },
+    dividerText: { fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 },
+    guestBtn: { 
+        width: '100%', 
+        padding: '13px', 
+        background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)', 
+        border: '2px solid #e2e8f0', 
+        borderRadius: 10, 
+        cursor: 'pointer', 
+        fontFamily: 'Tajawal, sans-serif', 
+        fontSize: '0.95rem', 
+        fontWeight: 700, 
+        color: '#475569', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        transition: 'all 0.2s ease',
+    },
 }

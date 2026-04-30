@@ -6,12 +6,15 @@ import { DataProvider } from './context/DataProvider.jsx'
 import Login from './login_page/Login.jsx'
 import AdminDashboard from './layouts/AdminDashboard'
 import ManagerDashboard from './layouts/ManagerDashboard'
+import GuestDashboard from './layouts/GuestDashboard'
 import SecurityWrapper from './components/SecurityWrapper'
 
 function PrivateRoute({ children, requiredRole }) {
     const { user } = useAuth()
     if (!user) return <Navigate to="/login" replace />
     if (requiredRole && user.role !== requiredRole) {
+        // الضيف يُوجَّه لصفحته الخاصة
+        if (user.role === 'GUEST') return <Navigate to="/guest" replace />
         return <Navigate to={user.role === 'ADMIN' ? '/admin' : '/manager'} replace />
     }
     // DataProvider داخل PrivateRoute — يُحمَّل فقط بعد تسجيل الدخول
@@ -23,9 +26,20 @@ function PrivateRoute({ children, requiredRole }) {
     )
 }
 
+// Route للضيف - بدون DataProvider و SecurityWrapper الكاملين
+function GuestRoute({ children }) {
+    const { user } = useAuth()
+    if (!user) return <Navigate to="/login" replace />
+    if (user.role !== 'GUEST') {
+        return <Navigate to={user.role === 'ADMIN' ? '/admin' : '/manager'} replace />
+    }
+    return children
+}
+
 function RootRedirect() {
     const { user } = useAuth()
     if (!user) return <Navigate to="/login" replace />
+    if (user.role === 'GUEST') return <Navigate to="/guest" replace />
     return <Navigate to={user.role === 'ADMIN' ? '/admin' : '/manager'} replace />
 }
 
@@ -42,6 +56,11 @@ function AppRoutes() {
                 <PrivateRoute requiredRole="MANAGER">
                     <ManagerDashboard />
                 </PrivateRoute>
+            } />
+            <Route path="/guest" element={
+                <GuestRoute>
+                    <GuestDashboard />
+                </GuestRoute>
             } />
             <Route path="/" element={<RootRedirect />} />
             <Route path="*" element={<Navigate to="/" replace />} />
