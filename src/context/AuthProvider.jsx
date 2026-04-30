@@ -207,26 +207,27 @@ export function AuthProvider({ children }) {
         }
     }
 
-    // تسجيل الدخول كضيف
-    const loginAsGuest = () => {
+    // تسجيل الدخول كضيف بدور محدد (ADMIN أو MANAGER)
+    const loginAsGuest = (role = 'MANAGER') => {
+        const normalizedRole = role === 'ADMIN' ? 'ADMIN' : 'MANAGER'
         const guestUser = {
-            uid: 'guest_' + Date.now(),
-            email: 'guest@smartparking.com',
-            full_name: 'زائر',
-            role: 'GUEST',
+            uid: 'guest_' + normalizedRole.toLowerCase() + '_' + Date.now(),
+            email: `guest_${normalizedRole.toLowerCase()}@smartparking.com`,
+            full_name: normalizedRole === 'ADMIN' ? 'ضيف - مسؤول' : 'ضيف - مدير',
+            role: normalizedRole,
             isGuest: true
         }
         
         securityLogger.log(SECURITY_EVENTS.LOGIN_SUCCESS, {
             userId: guestUser.uid,
             email: guestUser.email,
-            role: 'GUEST',
+            role: normalizedRole,
             isGuest: true
         })
         
         setUser(guestUser)
         setLoading(false)
-        return { ok: true, role: 'GUEST' }
+        return { ok: true, role: normalizedRole }
     }
 
     const logout = async () => {
