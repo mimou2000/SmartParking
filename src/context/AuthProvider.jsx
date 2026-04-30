@@ -215,6 +215,8 @@ export function AuthProvider({ children }) {
             email: `guest_${normalizedRole.toLowerCase()}@smartparking.com`,
             full_name: normalizedRole === 'ADMIN' ? 'ضيف - مسؤول' : 'ضيف - مدير',
             role: normalizedRole,
+            // المدير الضيف يحتاج zone_id ليعمل DataProvider بشكل صحيح
+            zone_id: normalizedRole === 'MANAGER' ? 'zone_demo_01' : null,
             isGuest: true
         }
         
