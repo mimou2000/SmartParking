@@ -1,6 +1,7 @@
 // ══════════════════════════════════════════════════════
 //  src/pages/ManagerDashboard.jsx
-//  ✅ يحل مشكلة عدم ظهور zone_id نهائياً
+//  ✅ وضع الضيف يستخدم المنطقة الأولى من DataContext مباشرة
+//  ✅ لا توجد استعلامات Firestore في وضع الضيف
 // ══════════════════════════════════════════════════════
 import React, { useState, useEffect, useMemo } from 'react'
 import Sidebar from '../components/Sidebar'
@@ -28,76 +29,81 @@ const PAGE_CONFIG = {
 }
 
 export default function ManagerDashboard() {
-    const { user }                            = useAuth()
-    const { zones, reservations: allRes }     = useData()
-    const [activePage, setActivePage]         = useState('stats')
+    const { user } = useAuth()
+    const { zones, reservations: allRes, spots: allSpots } = useData()
+    const [activePage, setActivePage] = useState('stats')
 
-    // ✅ حل جذري: نستخدم state منفصل لـ zoneId و zoneName
     const [myZoneId, setMyZoneId] = useState(null)
     const [myZoneName, setMyZoneName] = useState(null)
 
-    // ✅ جلب zone_id مباشرة من Firestore عند تحميل الصفحة وعند تغيير user
+    const isGuest = user?.isGuest === true   // متغير ثابت لتجنب تحذيرات التبعيات
+
+    // ══════════════════════════════════════════════════
+    //  تحديد myZoneId (المنطقة الخاصة بالمدير)
+    // ══════════════════════════════════════════════════
     useEffect(() => {
         if (!user?.uid) return
 
-        const fetchUserZone = async () => {
-            try {
-                const userDocRef = doc(db, 'users', user.uid)
-                const userDoc = await getDoc(userDocRef)
-                if (userDoc.exists()) {
-                    const data = userDoc.data()
-                    console.log('🔥 Direct Firestore zone_id:', data.zone_id, 'zone_name:', data.zone_name)
-                    setMyZoneId(data.zone_id || null)
-                    setMyZoneName(data.zone_name || null)
-                }
-            } catch (err) {
-                console.error('Error fetching user zone:', err)
+        // ── وضع الضيف: استخدم المنطقة الأولى من DataContext ──
+        if (isGuest) {
+            const guestZone = zones[0]
+            if (guestZone) {
+                setMyZoneId(guestZone.zone_id)
+                setMyZoneName(guestZone.zone_name)
             }
+            return
         }
 
-        fetchUserZone()
+        // ── مستخدم حقيقي ──
+        if (user.zone_id) {
+            setMyZoneId(user.zone_id)
+            setMyZoneName(user.zone_name || null)
+        }
 
-        // ✅ اشترك في التحديثات المباشرة لوثيقة المستخدم
-        const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data()
-                setMyZoneId(data.zone_id || null)
-                setMyZoneName(data.zone_name || null)
-            }
-        })
+        let unsub
+        try {
+            unsub = onSnapshot(
+                doc(db, 'users', user.uid),
+                (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data()
+                        setMyZoneId(data.zone_id || null)
+                        setMyZoneName(data.zone_name || null)
+                    }
+                },
+                (err) => console.warn('⚠️ اشتراك المستخدم فشل:', err.message)
+            )
+        } catch (err) {
+            console.warn('فشل بدء الاشتراك:', err.message)
+        }
 
-        return () => unsubscribe()
-    }, [user?.uid])
+        return () => { if (unsub) unsub() }
+    }, [user, zones, isGuest])
 
-    // ✅ الآن نستخدم myZoneId و myZoneName بدلاً من user.zone_id
+    // ══════════════════════════════════════════════════
+    //  myZone: كائن المنطقة المعروض
+    // ══════════════════════════════════════════════════
     const myZone = useMemo(() => {
         if (!myZoneId) return null
         const found = zones.find(z => z.zone_id === myZoneId)
         return found || { zone_id: myZoneId, zone_name: myZoneName || 'غير معروف' }
     }, [zones, myZoneId, myZoneName])
 
-    // ✅ myReservations كـ state قابل للتحديث
-    const [myReservations, setMyReservations] = useState([])
-    useEffect(() => {
-        if (myZone) {
-            setMyReservations(allRes.filter(r => r && r.zone_id === myZone.zone_id))
-        } else {
-            setMyReservations([])
-        }
+    // ══════════════════════════════════════════════════
+    //  myReservations (مُصفّاة)
+    // ══════════════════════════════════════════════════
+    const myReservations = useMemo(() => {
+        if (!myZone) return []
+        return allRes.filter(r => r && r.zone_id === myZone.zone_id)
     }, [allRes, myZone])
 
-    // ✅ spots مع onSnapshot
-    const [spots, setSpots] = useState([])
-    useEffect(() => {
-        if (!myZone?.zone_id) return
-        const unsub = onSnapshot(
-            collection(db, 'zones', myZone.zone_id, 'parking_spots'),
-            (snap) => {
-                setSpots(snap.docs.map(d => ({ spot_id: d.id, zone_id: myZone.zone_id, ...d.data() })))
-            }
-        )
-        return () => { unsub(); setSpots([]) }
-    }, [myZone?.zone_id])
+    // ══════════════════════════════════════════════════
+    //  mySpots (مُصفّاة من allSpots)
+    // ══════════════════════════════════════════════════
+    const mySpots = useMemo(() => {
+        if (!myZone) return []
+        return allSpots.filter(s => s.zone_id === myZone.zone_id)
+    }, [allSpots, myZone])
 
     const { notifications, clearAll } = useNotifications(myZone)
 
@@ -124,9 +130,9 @@ export default function ManagerDashboard() {
                     )}
                     {myZone && (
                         <>
-                            <div style={show('stats')}>        <PageStats        myZone={myZone} myReservations={myReservations} spots={spots} />             </div>
-                            <div style={show('reservations')}> <PageReservations myReservations={myReservations} setMyReservations={setMyReservations} />     </div>
-                            <div style={show('spots')}>        <PageSpots        myZone={myZone} spots={spots} setSpots={setSpots} />                         </div>
+                            <div style={show('stats')}>        <PageStats        myZone={myZone} myReservations={myReservations} spots={mySpots} />             </div>
+                            <div style={show('reservations')}> <PageReservations myReservations={myReservations} setMyReservations={() => {}} />     </div>
+                            <div style={show('spots')}>        <PageSpots        myZone={myZone} spots={mySpots} setSpots={() => {}} />                         </div>
                             <div style={show('reports')}>      <PageReports      myReservations={myReservations} />                                           </div>
                             <div style={show('drivers')}>      <PageDrivers      myReservations={myReservations} />                                           </div>
                             <div style={show('managers')}>     <PageManagers     myZone={myZone} currentUser={user} />                                        </div>

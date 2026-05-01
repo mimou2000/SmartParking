@@ -16,10 +16,9 @@ const toDateStr = (ts) => {
 }
 
 export default function PageStats() {
-    const { users, zones, reservations, spots, loading } = useData()
+    // ✅ أضفنا stats من الـ context لاستخدامه كـ fallback للمستخدم الحقيقي
+    const { users, zones, reservations, spots, stats, loading } = useData()
 
-    // عرض سبينر فقط عندما تكون البيانات قيد التحميل من Firebase
-    // في وضع الضيف loading سيكون false مباشرة
     if (loading) {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400, gap: 16 }}>
@@ -29,12 +28,24 @@ export default function PageStats() {
         )
     }
 
-    // الحسابات مباشرة من spots (أماكن الوقوف الفعلية أو الوهمية)
     const s = useMemo(() => {
-        const totalSpots     = spots.length
-        const occupiedSpots  = spots.filter(s => s.status === 'OCCUPIED').length
-        const availableSpots = spots.filter(s => s.status === 'AVAILABLE').length
-        const occupancyRate  = totalSpots > 0 ? ((occupiedSpots / totalSpots) * 100).toFixed(1) : 0
+        // ✅ الإصلاح: إذا كانت spots فارغة (مستخدم حقيقي لم تُحمَّل spots بعد أو ADMIN)
+        //    نستخدم القيم من stats الآتية من Firebase مباشرة كـ fallback
+        const totalSpots     = spots.length > 0
+            ? spots.length
+            : (stats?.total_spots ?? 0)
+
+        const occupiedSpots  = spots.length > 0
+            ? spots.filter(s => s.status === 'OCCUPIED').length
+            : (stats?.occupied_spots ?? 0)
+
+        const availableSpots = spots.length > 0
+            ? spots.filter(s => s.status === 'AVAILABLE').length
+            : (stats?.available_spots ?? 0)
+
+        const occupancyRate  = spots.length > 0
+            ? (totalSpots > 0 ? ((occupiedSpots / totalSpots) * 100).toFixed(1) : 0)
+            : (stats?.occupancy_rate ?? 0)
 
         const activeRes    = reservations.filter(r => r.status === 'active').length
         const pendingRes   = reservations.filter(r => r.status === 'pending').length
@@ -42,18 +53,30 @@ export default function PageStats() {
         const cancelledRes = reservations.filter(r => r.status === 'cancelled').length
 
         const completed    = reservations.filter(r => r.status === 'completed')
-        const totalRevenue = completed.reduce((sum, r) => sum + parseFloat(r.total_price || r.total_cost || 0), 0)
+
+        // ✅ الإيرادات: إذا لم تكن هناك حجوزات محلية، نستخدم stats من Firebase
+        const totalRevenue = completed.length > 0
+            ? completed.reduce((sum, r) => sum + parseFloat(r.total_price || r.total_cost || 0), 0)
+            : (stats?.total_revenue ?? 0)
 
         const today      = new Date().toISOString().slice(0, 10)
         const weekAgo    = new Date(Date.now() - 7  * 86400000).toISOString().slice(0, 10)
         const monthStart = new Date().toISOString().slice(0, 8) + '01'
 
-        const todayRevenue = completed.filter(r => toDateStr(r.created_at) === today)
-            .reduce((sum, r) => sum + parseFloat(r.total_price || r.total_cost || 0), 0)
-        const weekRevenue  = completed.filter(r => toDateStr(r.created_at) >= weekAgo)
-            .reduce((sum, r) => sum + parseFloat(r.total_price || r.total_cost || 0), 0)
-        const monthRevenue = completed.filter(r => toDateStr(r.created_at) >= monthStart)
-            .reduce((sum, r) => sum + parseFloat(r.total_price || r.total_cost || 0), 0)
+        const todayRevenue = completed.length > 0
+            ? completed.filter(r => toDateStr(r.created_at) === today)
+                .reduce((sum, r) => sum + parseFloat(r.total_price || r.total_cost || 0), 0)
+            : (stats?.today_revenue ?? 0)
+
+        const weekRevenue  = completed.length > 0
+            ? completed.filter(r => toDateStr(r.created_at) >= weekAgo)
+                .reduce((sum, r) => sum + parseFloat(r.total_price || r.total_cost || 0), 0)
+            : (stats?.week_revenue ?? 0)
+
+        const monthRevenue = completed.length > 0
+            ? completed.filter(r => toDateStr(r.created_at) >= monthStart)
+                .reduce((sum, r) => sum + parseFloat(r.total_price || r.total_cost || 0), 0)
+            : (stats?.month_revenue ?? 0)
 
         const avgRevPerRes  = completedRes > 0 ? totalRevenue / completedRes : 0
         const totalManagers = users.filter(u => u.role === 'MANAGER').length
@@ -66,7 +89,7 @@ export default function PageStats() {
             totalRevenue, todayRevenue, weekRevenue, monthRevenue, avgRevPerRes,
             totalUsers: users.length, totalManagers, totalDrivers,
         }
-    }, [users, zones, spots, reservations])
+    }, [users, zones, spots, reservations, stats]) // ✅ أضفنا stats للـ dependencies
 
     const trafficByHour = useMemo(() => {
         const counts = {}
@@ -128,23 +151,23 @@ export default function PageStats() {
                 ].map(r => (
                     <div key={r.label} style={{ ...styles.revCard, borderTopColor: r.color }}>
                         <div style={{ ...styles.revPeriod, color: r.color }}>{r.label}</div>
-                        <div style={styles.revAmount}>{r.amount.toLocaleString('ar-DZ', { minimumFractionDigits: 2 })}</div>
-                        <div style={styles.revUnit}>دج <span style={{ color: '#94a3b8' }}>| {r.sub}</span></div>
+                        <div style={styles.revAmount}>{r.amount.toLocaleString('ar-DZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        <div style={styles.revUnit}>دج | {r.sub}</div>
                     </div>
                 ))}
             </div>
 
-            {/* Traffic summary */}
+            {/* Traffic Summary */}
             <div style={styles.trafficRow}>
                 {[
-                    { icon: 'fa-car',          num: s.activeRes,    label: 'سيارات داخل الموقف',  color: '#6366f1' },
-                    { icon: 'fa-check-circle', num: s.completedRes, label: 'زيارة مكتملة',         color: '#10b981' },
-                    { icon: 'fa-clock',        num: s.pendingRes,   label: 'حجز بانتظار التأكيد', color: '#f59e0b' },
-                    { icon: 'fa-times-circle', num: s.cancelledRes, label: 'حجز ملغى',            color: '#ef4444' },
+                    { label: 'إجمالي الحجوزات', num: s.totalRes,    icon: '📋' },
+                    { label: 'حجوزات نشطة',      num: s.activeRes,   icon: '🟢' },
+                    { label: 'حجوزات معلقة',     num: s.pendingRes,  icon: '🟡' },
+                    { label: 'حجوزات مكتملة',    num: s.completedRes,icon: '✅' },
                 ].map(t => (
                     <div key={t.label} style={styles.trafficItem}>
-                        <div style={{ ...styles.trafficIcon, color: t.color }}><i className={`fas ${t.icon}`} /></div>
-                        <div style={styles.trafficNum}>{t.num.toLocaleString()}</div>
+                        <div style={styles.trafficIcon}>{t.icon}</div>
+                        <div style={styles.trafficNum}>{t.num}</div>
                         <div style={styles.trafficLabel}>{t.label}</div>
                     </div>
                 ))}

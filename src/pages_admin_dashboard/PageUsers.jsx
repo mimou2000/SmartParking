@@ -425,24 +425,25 @@ function UsersTable({ users, role, currentUserId, onEdit, onDelete }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: isAdmin ? '40%' : '32%' }} />
-              {!isAdmin && <col style={{ width: '20%' }} />}
-              <col style={{ width: '15%' }} />
-              <col style={{ width: isAdmin ? '25%' : '18%' }} />
+              <col style={{ width: isAdmin ? '20%' : '30%' }} />
+              <col style={{ width: isAdmin ? '20%' : '18%' }} />
               <col style={{ width: '20%' }} />
             </colgroup>
             <thead>
             <tr>
               <th style={th}>{isAdmin ? 'المسؤول' : 'المدير'}</th>
-              {!isAdmin && <th style={th}>الموقف المسند</th>}
-              {isAdmin && <th style={th}>الدور</th>}
-              {!isAdmin && <th style={th}>الإيراد</th>}
+              {isAdmin ? (
+                  <th style={th}>الدور</th>
+              ) : (
+                  <th style={th}>الموقف المسند</th>
+              )}
               <th style={th}>تاريخ الإضافة</th>
               <th style={th}>إجراءات</th>
             </tr>
             </thead>
             <tbody>
             {filtered.length === 0 ? (
-                <tr><td colSpan={isAdmin ? 4 : 5}><div className="empty-state"><i className={`fas ${isAdmin ? 'fa-shield-alt' : 'fa-user-tie'}`} /><p>{isAdmin ? 'لا يوجد مسؤولون بعد' : 'لا يوجد مديرون بعد'}</p></div></td></tr>
+                <tr><td colSpan={4}><div className="empty-state"><i className={`fas ${isAdmin ? 'fa-shield-alt' : 'fa-user-tie'}`} /><p>{isAdmin ? 'لا يوجد مسؤولون بعد' : 'لا يوجد مديرون بعد'}</p></div></td></tr>
             ) : filtered.map(u => {
               const _rb = getRoleBadge(u.role)
               const isCurrent = u.user_id === currentUserId
@@ -463,24 +464,18 @@ function UsersTable({ users, role, currentUserId, onEdit, onDelete }) {
                         </div>
                       </div>
                     </td>
-                    {!isAdmin && (
+                    {isAdmin ? (
+                        <td style={td}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f5f3ff', color: '#7c3aed', padding: '3px 10px', borderRadius: 20, fontSize: '.73rem', fontWeight: 700 }}>
+                            <i className="fas fa-shield-alt" style={{ fontSize: '.65rem' }} /> ADMIN
+                          </span>
+                        </td>
+                    ) : (
                         <td style={td}>
                           {u.zone_name
                               ? <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '3px 10px', borderRadius: 20, fontSize: '.75rem', fontWeight: 700, whiteSpace: 'nowrap' }}><i className="fas fa-map-marker-alt" style={{ marginLeft: 4, fontSize: '.65rem' }} />{u.zone_name}</span>
                               : <span style={{ background: '#f8fafc', color: '#94a3b8', padding: '3px 10px', borderRadius: 20, fontSize: '.75rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><i className="fas fa-unlink" style={{ fontSize: '.65rem' }} /> غير مرتبط</span>
                           }
-                        </td>
-                    )}
-                    {isAdmin && (
-                        <td style={td}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f5f3ff', color: '#7c3aed', padding: '3px 10px', borderRadius: 20, fontSize: '.73rem', fontWeight: 700 }}>
-                        <i className="fas fa-shield-alt" style={{ fontSize: '.65rem' }} /> ADMIN
-                      </span>
-                        </td>
-                    )}
-                    {!isAdmin && (
-                        <td style={td}>
-                          {u.zone_revenue > 0 ? <strong style={{ color: '#10b981' }}>{(u.zone_revenue / 1000).toFixed(0)}K دج</strong> : <span style={{ color: '#94a3b8' }}>—</span>}
                         </td>
                     )}
                     <td style={{ ...td, fontSize: '.8rem', color: '#64748b' }}>{formatDate(u.created_at)}</td>
@@ -521,11 +516,10 @@ function EditModal({ target, zones, onClose, onSave }) {
     }
   }, [target])
 
-  if (!target) return null   // ✅ الآن بعد الـ Hooks
+  if (!target) return null
 
   const isAdmin = target.role === 'ADMIN'
   const accentColor = isAdmin ? '#8b5cf6' : '#6366f1'
-
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -534,7 +528,7 @@ function EditModal({ target, zones, onClose, onSave }) {
       full_name: fd.get('fname'),
       email:     fd.get('email'),
       phone:     fd.get('phone'),
-      zone_id:   zoneId || 'NULL',   // ← zone_id وليس assigned_zone
+      zone_id:   zoneId || 'NULL',
       zone_name: zones.find(z => String(z.zone_id) === zoneId)?.zone_name || '',
       password:  newPass || null,
     })
@@ -556,7 +550,6 @@ function EditModal({ target, zones, onClose, onSave }) {
             تعديل: <strong>{target.full_name}</strong>
           </div>
           <form onSubmit={handleSubmit} autoComplete="off">
-            {/* حقول وهمية تخدع المتصفح وتمنعه من ملء الحقول الحقيقية */}
             <input type="text"   style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
             <input type="email"  style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
             <input type="password" style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
@@ -575,7 +568,6 @@ function EditModal({ target, zones, onClose, onSave }) {
                 <label className="form-label">رقم الهاتف</label>
                 <input className="form-input" name="phone" defaultValue={target.phone} autoComplete="new-password" data-lpignore="true" data-form-type="other" />
               </div>
-              {/* ✅ Combobox في modal التعديل أيضاً */}
               {!isAdmin && (
                   <div className="form-group">
                     <label className="form-label">الموقف المسند</label>
@@ -658,7 +650,7 @@ export default function PageUsers() {
             { icon: 'fa-users',          val: users.length,                                 label: 'إجمالي الحسابات',   border: '#6366f1', bg: '#eff6ff', ic: '#6366f1' },
             { icon: 'fa-shield-alt',     val: admins.length,                                label: 'مسؤولون (ADMIN)',   border: '#8b5cf6', bg: '#f5f3ff', ic: '#8b5cf6' },
             { icon: 'fa-user-tie',       val: managers.length,                              label: 'مديرون (MANAGER)',  border: '#10b981', bg: '#f0fdf4', ic: '#10b981' },
-            { icon: 'fa-map-marked-alt', val: managers.filter(m => m.assigned_zone).length, label: 'مرتبطون بموقف',   border: '#f59e0b', bg: '#fff7ed', ic: '#f59e0b' },
+            { icon: 'fa-map-marked-alt', val: managers.filter(m => m.assigned_zone || m.zone_id || m.zone_name).length, label: 'مرتبطون بموقف',   border: '#f59e0b', bg: '#fff7ed', ic: '#f59e0b' },
           ].map(k => (
               <div key={k.label} style={{ background: 'white', borderRadius: 14, padding: '18px 20px', border: '1px solid var(--border)', borderTop: `4px solid ${k.border}`, boxShadow: '0 2px 10px rgba(0,0,0,.04)', display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div style={{ width: 46, height: 46, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0, background: k.bg, color: k.ic }}>

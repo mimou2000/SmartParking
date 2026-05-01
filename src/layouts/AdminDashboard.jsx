@@ -8,6 +8,7 @@ import PageManagers from '../pages_admin_dashboard/PageManagers'
 import PageUsers from '../pages_admin_dashboard/PageUsers'
 import PageReports from '../pages_admin_dashboard/PageReports'
 import { useData } from '../context/useData'
+import { useAuth } from '../context/useAuth'   // ✅ جديد – لمعرفة وضع الضيف
 import { db } from '../firebase'
 import { collection, onSnapshot } from 'firebase/firestore'
 import PageFeedback from '../pages_admin_dashboard/Pagefeedback'
@@ -24,23 +25,35 @@ const PAGE_CONFIG = {
 
 export default function AdminDashboard() {
   const [activePage, setActivePage] = useState('stats')
-  const { zones } = useData()
+  const { zones, spots: contextSpots } = useData()
+  const { user } = useAuth()                 // ✅ للتحقق من وضع الضيف
 
-  // ✅ allSpots مع onSnapshot — تتحدث فوراً عند أي تغيير في Firestore
+  const isGuest = user?.isGuest === true     // ✅ متغير ثابت لتجنب تغير التبعيات
+
+  // ✅ allSpots مع onSnapshot للمستخدم الحقيقي فقط
   const [allSpots,    setAllSpots]    = useState([])
   const [spotsLoaded, setSpotsLoaded] = useState(false)
   const unsubsRef = useRef([])
 
   useEffect(() => {
-    if (!zones || zones.length === 0) return
+    // ✅ إذا كان المستخدم ضيفاً نعتمد على contextSpots مباشرة
+    if (isGuest) {
+      setAllSpots(contextSpots)
+      setSpotsLoaded(true)
+      return
+    }
+
+    if (!zones || zones.length === 0) {
+      setAllSpots([])
+      setSpotsLoaded(false)
+      return
+    }
 
     // إلغاء الاشتراكات السابقة
     unsubsRef.current.forEach(u => u())
     unsubsRef.current = []
 
     setSpotsLoaded(false)
-
-    // خريطة تحتفظ بأماكن كل zone
     const spotsMap = {}
     let loadedCount = 0
 
@@ -50,22 +63,21 @@ export default function AdminDashboard() {
       const unsub = onSnapshot(
           collection(db, 'zones', zone.zone_id, 'parking_spots'),
           (snap) => {
-            // تحديث أماكن هذه الـ zone
             spotsMap[zone.zone_id] = snap.docs.map(d => ({
               spot_id: d.id,
               zone_id: zone.zone_id,
               ...d.data(),
             }))
-
-            // دمج كل الأماكن من جميع المناطق
             const merged = Object.values(spotsMap).flat()
             setAllSpots(merged)
 
-            // تحديد أن التحميل اكتمل بعد استجابة جميع المناطق
             if (!spotsLoaded) {
               loadedCount++
               if (loadedCount >= zones.length) setSpotsLoaded(true)
             }
+          },
+          (error) => {
+            console.warn('⚠️ اشتراك المواقف فشل:', error.message)
           }
       )
       unsubsRef.current.push(unsub)
@@ -75,11 +87,9 @@ export default function AdminDashboard() {
       unsubsRef.current.forEach(u => u())
       unsubsRef.current = []
     }
-  }, [zones])
+  }, [zones, isGuest, contextSpots])  // ✅ تبعيات ثابتة الحجم: isGuest قيمة منطقية ثابتة
 
   const cfg = PAGE_CONFIG[activePage] || PAGE_CONFIG.stats
-
-  // ✅ CSS show/hide — الصفحات تبقى في الذاكرة ولا تُعاد من الصفر عند التبديل
   const show = (page) => ({ display: activePage === page ? 'block' : 'none' })
 
   return (
@@ -96,11 +106,9 @@ export default function AdminDashboard() {
             <div style={show('reports')}><PageReports/></div>
             <div style={show('feedback')}><PageFeedback/></div>
           </div>
-
-
+        </div>
       </div>
-</div>
-)
+  )
 }
 
 const styles = {

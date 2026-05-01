@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useData } from '../context/useData'   // ✅ إصلاح: من useData.js
+import { useData } from '../context/useData'
 
 export default function PageManagers() {
   const { managers, zones, updateUser, deleteUser } = useData()
@@ -12,7 +12,6 @@ export default function PageManagers() {
     setTimeout(() => setMsg({ text: '', ok: false }), 4000)
   }
 
-  // ✅ إصلاح: تحويل Firebase Timestamp إلى تاريخ مقروء
   const formatDate = (ts) => {
     if (!ts) return '—'
     const date = ts?.toDate ? ts.toDate() : new Date(ts)
@@ -87,7 +86,7 @@ export default function PageManagers() {
         <div className="card" style={{ padding: 0, overflow: 'hidden', width: '100%' }}>
           <div style={styles.tableHeader}>
             <div style={{ fontWeight: 800, fontSize: '1rem', color: '#0f172a' }}>قائمة المديرين</div>
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative', display: 'inline-block' }}>
               <i className="fas fa-search" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.82rem' }} />
               <input className="form-input" style={{ paddingRight: 36, width: 220, padding: '8px 36px 8px 14px' }}
                      placeholder="بحث عن مدير..." value={search} onChange={e => setSearch(e.target.value)} />
@@ -95,20 +94,29 @@ export default function PageManagers() {
           </div>
 
           <div style={{ width: '100%', overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto' }}>
               <colgroup>
-                <col style={{ width: '28%' }} /><col style={{ width: '22%' }} />
-                <col style={{ width: '15%' }} /><col style={{ width: '20%' }} /><col style={{ width: '15%' }} />
+                <col style={{ width: 'auto', minWidth: '160px' }} />
+                <col style={{ width: 'auto', minWidth: '120px' }} />
+                <col style={{ width: '110px' }} />
+                <col style={{ width: '130px' }} />
               </colgroup>
               <thead>
               <tr>
-                <th style={styles.th}>المدير</th><th style={styles.th}>الموقف المسند</th>
-                <th style={styles.th}>الإيراد</th><th style={styles.th}>تاريخ الإضافة</th><th style={styles.th}>الإجراءات</th>
+                <th style={styles.th}>المدير</th>
+                <th style={styles.th}>الموقف المسند</th>
+                <th style={styles.th}>تاريخ الإضافة</th>
+                <th style={styles.th}>الإجراءات</th>
               </tr>
               </thead>
               <tbody>
               {filtered.length === 0 ? (
-                  <tr><td colSpan={5}><div className="empty-state"><i className="fas fa-users" /><p>لا يوجد مديرون</p></div></td></tr>
+                  <tr><td colSpan={4} style={{ textAlign: 'center', padding: '40px 16px' }}>
+                    <div className="empty-state">
+                      <i className="fas fa-users" />
+                      <p>لا يوجد مديرون</p>
+                    </div>
+                  </td></tr>
               ) : filtered.map(m => (
                   <tr key={m.user_id} style={styles.tr}>
                     <td style={styles.td}>
@@ -128,10 +136,6 @@ export default function PageManagers() {
                           : <span style={{ background: '#f8fafc', color: '#94a3b8', padding: '3px 10px', borderRadius: 20, fontSize: '0.75rem' }}>بدون تعيين</span>
                       }
                     </td>
-                    <td style={styles.td}>
-                      <strong style={{ color: '#10b981' }}>{((m.zone_revenue || 0) / 1000).toFixed(0)}K دج</strong>
-                    </td>
-                    {/* ✅ إصلاح: Firebase Timestamp → string */}
                     <td style={{ ...styles.td, fontSize: '0.8rem', color: '#64748b' }}>{formatDate(m.created_at)}</td>
                     <td style={styles.td}>
                       <div style={{ display: 'flex', gap: 6 }}>
