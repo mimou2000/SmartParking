@@ -19,6 +19,8 @@ export function PageReports({ myReservations }) {
 
     const statusData = [
         { name: 'نشط',   value: myReservations.filter(r => r.status === 'active').length,    fill: '#10b981' },
+        { name: 'مؤكد',  value: myReservations.filter(r => r.status === 'confirmed').length, fill: '#3b82f6' },
+        { name: 'معلق',  value: myReservations.filter(r => r.status === 'pending').length,   fill: '#f59e0b' },
         { name: 'مكتمل', value: completed.length,                                             fill: '#6366f1' },
         { name: 'ملغي',  value: myReservations.filter(r => r.status === 'cancelled').length, fill: '#ef4444' },
     ]

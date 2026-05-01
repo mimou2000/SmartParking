@@ -10,10 +10,23 @@ const getRoleBadge = (role) =>
         : { bg: '#f0fdf4', c: '#15803d', label: 'مدير موقف', icon: 'fa-user-tie' }
 function formatDate(value) {
   if (!value) return '—'
-  if (typeof value === 'string') return value.slice(0, 10)
-  if (value instanceof Date) return value.toISOString().slice(0, 10)
-  if (typeof value === 'number') return new Date(value).toISOString().slice(0, 10)
-  if (value?.seconds) return new Date(value.seconds * 1000).toISOString().slice(0, 10)
+
+  if (typeof value === 'string') {
+    return value.slice(0, 10)
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10)
+  }
+
+  if (typeof value === 'number') {
+    return new Date(value).toISOString().slice(0, 10)
+  }
+
+  if (value?.seconds) { // Firebase Timestamp
+    return new Date(value.seconds * 1000).toISOString().slice(0, 10)
+  }
+
   return '—'
 }
 
@@ -28,6 +41,7 @@ function checkStrength(val) {
   return { r1, r2, r3, score, color: colors[score-1]||colors[0], label: labels[score-1]||labels[0], width: widths[score-1]||widths[0] }
 }
 
+/* ─── قوة كلمة المرور ─── */
 function PasswordRules({ val }) {
   const { r1, r2, r3, color, label, width } = checkStrength(val)
   return (
@@ -52,7 +66,9 @@ function PasswordRules({ val }) {
   )
 }
 
-/* ── ZoneCombobox ── */
+// ══════════════════════════════════════════════════
+//  ✅ Searchable Zone Combobox
+// ══════════════════════════════════════════════════
 function ZoneCombobox({ zones, value, onChange }) {
   const [query, setQuery]   = useState('')
   const [open, setOpen]     = useState(false)
@@ -62,21 +78,38 @@ function ZoneCombobox({ zones, value, onChange }) {
   const wrapRef   = useRef(null)
 
   const selected = zones.find(z => String(z.zone_id) === String(value))
+
+  // فلترة بالبحث — أول 50 نتيجة فقط
   const filtered = query.trim()
-      ? zones.filter(z => z.zone_name.toLowerCase().includes(query.toLowerCase())).slice(0, 50)
+      ? zones.filter(z => {
+        const q = query.toLowerCase()
+        return z.zone_name.toLowerCase().includes(q)
+      }).slice(0, 50)
       : zones.slice(0, 50)
 
+  // إغلاق عند النقر خارج
   useEffect(() => {
-    const handler = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
+    }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  // تمرير للعنصر المحدد
   useEffect(() => {
-    if (active >= 0 && listRef.current) listRef.current.children[active]?.scrollIntoView({ block: 'nearest' })
+    if (active >= 0 && listRef.current) {
+      const el = listRef.current.children[active]
+      el?.scrollIntoView({ block: 'nearest' })
+    }
   }, [active])
 
-  const select = (zone) => { onChange(zone ? String(zone.zone_id) : ''); setQuery(''); setOpen(false); setActive(-1) }
+  const select = (zone) => {
+    onChange(zone ? String(zone.zone_id) : '')
+    setQuery('')
+    setOpen(false)
+    setActive(-1)
+  }
 
   const handleKey = (e) => {
     if (!open) { if (e.key === 'ArrowDown' || e.key === 'Enter') setOpen(true); return }
@@ -88,43 +121,115 @@ function ZoneCombobox({ zones, value, onChange }) {
 
   return (
       <div ref={wrapRef} style={{ position: 'relative' }}>
-        <div style={{ display: 'flex', alignItems: 'center', border: `1.5px solid ${open ? '#6366f1' : '#e2e8f0'}`, borderRadius: 9, background: 'white', cursor: 'text', transition: 'border-color .2s', boxShadow: open ? '0 0 0 3px rgba(99,102,241,0.1)' : 'none', minHeight: 38 }}
-             onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 0) }}>
+        {/* ✅ الحل: div يحاكي input — المتصفح لا يرى input حتى يفتح المستخدم القائمة */}
+        <div
+            style={{
+              display: 'flex', alignItems: 'center',
+              border: `1.5px solid ${open ? '#6366f1' : '#e2e8f0'}`,
+              borderRadius: 9, background: 'white', cursor: 'text',
+              transition: 'border-color .2s',
+              boxShadow: open ? '0 0 0 3px rgba(99,102,241,0.1)' : 'none',
+              minHeight: 38,
+            }}
+            onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 0) }}
+        >
           <i className="fas fa-parking" style={{ padding: '0 10px', color: '#94a3b8', fontSize: '.85rem', flexShrink: 0 }} />
+
+          {/* عندما تكون القائمة مفتوحة: input حقيقي للبحث */}
           {open ? (
-              <input ref={inputRef} value={query} onChange={e => { setQuery(e.target.value); setActive(-1) }} onKeyDown={handleKey}
-                     placeholder="ابحث عن موقف..." type="text" autoComplete="off" data-form-type="other" data-lpignore="true"
-                     style={{ flex: 1, border: 'none', outline: 'none', padding: '9px 0', fontSize: '.88rem', fontFamily: 'Tajawal, sans-serif', background: 'transparent', color: '#0f172a' }} />
+              <input
+                  ref={inputRef}
+                  value={query}
+                  onChange={e => { setQuery(e.target.value); setActive(-1) }}
+                  onKeyDown={handleKey}
+                  placeholder="ابحث عن موقف..."
+                  type="text"
+                  autoComplete="off"
+                  data-form-type="other"
+                  data-lpignore="true"
+                  style={{
+                    flex: 1, border: 'none', outline: 'none', padding: '9px 0',
+                    fontSize: '.88rem', fontFamily: 'Tajawal, sans-serif',
+                    background: 'transparent', color: '#0f172a',
+                  }}
+              />
           ) : (
-              <div style={{ flex: 1, padding: '9px 0', fontSize: '.88rem', fontFamily: 'Tajawal, sans-serif', color: selected ? '#0f172a' : '#94a3b8' }}>
+              /* عندما تكون مغلقة: نص عادي — لا input أصلاً */
+              <div style={{
+                flex: 1, padding: '9px 0', fontSize: '.88rem',
+                fontFamily: 'Tajawal, sans-serif',
+                color: selected ? '#0f172a' : '#94a3b8',
+              }}>
                 {selected ? selected.zone_name : 'ابحث عن موقف...'}
               </div>
           )}
+
           {selected ? (
-              <button type="button" onClick={e => { e.stopPropagation(); select(null) }} style={{ padding: '0 10px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }} title="إلغاء الاختيار">
+              <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); select(null) }}
+                  style={{ padding: '0 10px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                  title="إلغاء الاختيار"
+              >
                 <i className="fas fa-times" />
               </button>
           ) : (
               <i className="fas fa-chevron-down" style={{ padding: '0 10px', color: '#94a3b8', fontSize: '.75rem', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
           )}
         </div>
+
+        {/* القائمة المنسدلة */}
         {open && (
-            <div ref={listRef} style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, left: 0, background: 'white', border: '1.5px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 9999, maxHeight: 220, overflowY: 'auto' }}>
-              <div onClick={() => select(null)} style={{ padding: '9px 14px', cursor: 'pointer', fontSize: '.85rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: 8, background: active === -1 ? '#f0f9ff' : 'white', borderBottom: '1px solid #f1f5f9' }} onMouseEnter={() => setActive(-1)}>
+            <div
+                ref={listRef}
+                style={{
+                  position: 'absolute', top: 'calc(100% + 4px)', right: 0, left: 0,
+                  background: 'white', border: '1.5px solid #e2e8f0', borderRadius: 10,
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 9999,
+                  maxHeight: 220, overflowY: 'auto',
+                }}
+            >
+              {/* خيار "بدون ربط" */}
+              <div
+                  onClick={() => select(null)}
+                  style={{
+                    padding: '9px 14px', cursor: 'pointer', fontSize: '.85rem',
+                    color: '#64748b', display: 'flex', alignItems: 'center', gap: 8,
+                    background: active === -1 ? '#f0f9ff' : 'white',
+                    borderBottom: '1px solid #f1f5f9',
+                  }}
+                  onMouseEnter={() => setActive(-1)}
+              >
                 <i className="fas fa-unlink" style={{ fontSize: '.75rem' }} /> بدون ربط
               </div>
+
               {filtered.length === 0 ? (
-                  <div style={{ padding: '14px', textAlign: 'center', color: '#94a3b8', fontSize: '.85rem' }}><i className="fas fa-search" style={{ marginLeft: 6 }} />لا توجد نتائج</div>
+                  <div style={{ padding: '14px', textAlign: 'center', color: '#94a3b8', fontSize: '.85rem' }}>
+                    <i className="fas fa-search" style={{ marginLeft: 6 }} />لا توجد نتائج
+                  </div>
               ) : filtered.map((z, i) => (
-                  <div key={z.zone_id} onClick={() => select(z)} onMouseEnter={() => setActive(i)}
-                       style={{ padding: '9px 14px', cursor: 'pointer', fontSize: '.85rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: active === i ? '#f0f9ff' : String(z.zone_id) === String(value) ? '#faf5ff' : 'white', borderBottom: '1px solid #f8fafc' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <i className="fas fa-map-marker-alt" style={{ color: '#6366f1', fontSize: '.75rem' }} />
-                      <span style={{ color: '#0f172a', fontWeight: String(z.zone_id) === String(value) ? 700 : 400 }}>{z.zone_name}</span>
-                    </span>
-                    {String(z.zone_id) === String(value) && <i className="fas fa-check" style={{ color: '#6366f1', fontSize: '.75rem' }} />}
+                  <div
+                      key={z.zone_id}
+                      onClick={() => select(z)}
+                      onMouseEnter={() => setActive(i)}
+                      style={{
+                        padding: '9px 14px', cursor: 'pointer', fontSize: '.85rem',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        background: active === i ? '#f0f9ff' : String(z.zone_id) === String(value) ? '#faf5ff' : 'white',
+                        borderBottom: '1px solid #f8fafc',
+                      }}
+                  >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <i className="fas fa-map-marker-alt" style={{ color: '#6366f1', fontSize: '.75rem' }} />
+                <span style={{ color: '#0f172a', fontWeight: String(z.zone_id) === String(value) ? 700 : 400 }}>{z.zone_name}</span>
+              </span>
+                    {String(z.zone_id) === String(value) && (
+                        <i className="fas fa-check" style={{ color: '#6366f1', fontSize: '.75rem' }} />
+                    )}
                   </div>
               ))}
+
+              {/* عدد النتائج */}
               <div style={{ padding: '6px 14px', background: '#f8fafc', borderTop: '1px solid #f1f5f9', fontSize: '.72rem', color: '#94a3b8' }}>
                 {query ? `${filtered.length} نتيجة من ${zones.length}` : `أول 50 من ${zones.length} موقف`}
               </div>
@@ -143,7 +248,9 @@ function DeleteModal({ target, onClose, onConfirm }) {
       <div className="modal-overlay" onClick={onClose}>
         <div className="modal-box" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
           <div className="modal-header" style={{ background: 'linear-gradient(135deg,#fef2f2,#fff)' }}>
-            <div className="modal-title" style={{ color: '#dc2626' }}><i className="fas fa-trash-alt" style={{ color: '#dc2626' }} /> تأكيد الحذف</div>
+            <div className="modal-title" style={{ color: '#dc2626' }}>
+              <i className="fas fa-trash-alt" style={{ color: '#dc2626' }} /> تأكيد الحذف
+            </div>
             <button className="modal-close" onClick={onClose}>✕</button>
           </div>
           <div style={{ textAlign: 'center', padding: '20px 0 10px' }}>
@@ -161,8 +268,8 @@ function DeleteModal({ target, onClose, onConfirm }) {
                   <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '.95rem' }}>{target.full_name}</div>
                   <div style={{ fontSize: '.8rem', color: '#64748b', marginTop: 2 }}>{target.email}</div>
                   <span style={{ background: rb.bg, color: rb.c, padding: '2px 10px', borderRadius: 20, fontSize: '.72rem', fontWeight: 700, marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <i className={`fas ${rb.icon}`} style={{ fontSize: '.65rem' }} /> {rb.label}
-                  </span>
+                  <i className={`fas ${rb.icon}`} style={{ fontSize: '.65rem' }} /> {rb.label}
+                </span>
                 </div>
               </div>
             </div>
@@ -184,9 +291,9 @@ function DeleteModal({ target, onClose, onConfirm }) {
 /* ─── نموذج إضافة مستخدم ─── */
 function AddUserForm({ role, zones, onAdd, accentColor = '#6366f1' }) {
   const emptyForm = { name: '', email: '', phone: '', pass: '', pass2: '', zone_id: '' }
-  const [form, setForm]         = useState(emptyForm)
+  const [form, setForm]     = useState(emptyForm)
   const [showPass, setShowPass] = useState({ p1: false, p2: false })
-  const [err, setErr]           = useState('')
+  const [err, setErr]       = useState('')
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -224,10 +331,10 @@ function AddUserForm({ role, zones, onAdd, accentColor = '#6366f1' }) {
         )}
 
         <form onSubmit={handleSubmit} autoComplete="off">
-          <input type="text" style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
-          <input type="email" style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
+          {/* حقول وهمية تخدع المتصفح وتمنعه من ملء الحقول الحقيقية */}
+          <input type="text"   style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
+          <input type="email"  style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
           <input type="password" style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
-
           <div className="form-group">
             <label className="form-label"><i className="fas fa-user" style={{ color: accentColor, marginLeft: 5 }} />الاسم الكامل *</label>
             <input className="form-input" placeholder="أحمد الأمين طاهري" value={form.name} onChange={e => set('name', e.target.value)} required autoComplete="new-password" data-lpignore="true" data-form-type="other" />
@@ -244,12 +351,17 @@ function AddUserForm({ role, zones, onAdd, accentColor = '#6366f1' }) {
             </div>
           </div>
 
+          {/* ✅ Searchable Zone Combobox بدل select عادي */}
           {!isAdmin && (
               <div style={{ padding: 14, background: '#f0f9ff', borderRadius: 10, border: '1px solid #bae6fd', marginBottom: 16 }}>
                 <div style={{ fontSize: '.78rem', fontWeight: 700, color: '#0369a1', marginBottom: 10 }}>
                   <i className="fas fa-link" style={{ marginLeft: 6 }} />ربط بموقف (اختياري)
                 </div>
-                <ZoneCombobox zones={zones.filter(z => z.is_active)} value={form.zone_id} onChange={v => set('zone_id', v)} />
+                <ZoneCombobox
+                    zones={zones.filter(z => z.is_active)}
+                    value={form.zone_id}
+                    onChange={v => set('zone_id', v)}
+                />
               </div>
           )}
 
@@ -301,8 +413,8 @@ function UsersTable({ users, role, currentUserId, onEdit, onDelete }) {
             <i className={`fas ${isAdmin ? 'fa-shield-alt' : 'fa-users-cog'}`} style={{ color: accentColor }} />
             {isAdmin ? 'قائمة المسؤولين' : 'قائمة المديرين'}
             <span style={{ background: isAdmin ? '#f5f3ff' : '#f0fdf4', color: isAdmin ? '#7c3aed' : '#15803d', padding: '3px 10px', borderRadius: 20, fontSize: '.72rem', fontWeight: 700 }}>
-              {users.length} {isAdmin ? 'مسؤول' : 'مدير'}
-            </span>
+            {users.length} {isAdmin ? 'مسؤول' : 'مدير'}
+          </span>
           </div>
           <div style={{ position: 'relative' }}>
             <i className="fas fa-search" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '.82rem' }} />
@@ -312,26 +424,25 @@ function UsersTable({ users, role, currentUserId, onEdit, onDelete }) {
         <div style={{ width: '100%', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup>
-              {/* ✅ حذف عمود الإيراد — إعادة توزيع العرض */}
-              <col style={{ width: isAdmin ? '45%' : '38%' }} />
-              {!isAdmin && <col style={{ width: '25%' }} />}
-              {isAdmin && <col style={{ width: '20%' }} />}
+              <col style={{ width: isAdmin ? '40%' : '32%' }} />
+              {!isAdmin && <col style={{ width: '20%' }} />}
+              <col style={{ width: '15%' }} />
+              <col style={{ width: isAdmin ? '25%' : '18%' }} />
               <col style={{ width: '20%' }} />
-              <col style={{ width: isAdmin ? '15%' : '17%' }} />
             </colgroup>
             <thead>
             <tr>
               <th style={th}>{isAdmin ? 'المسؤول' : 'المدير'}</th>
               {!isAdmin && <th style={th}>الموقف المسند</th>}
               {isAdmin && <th style={th}>الدور</th>}
-              {/* ✅ حذف عمود الإيراد */}
+              {!isAdmin && <th style={th}>الإيراد</th>}
               <th style={th}>تاريخ الإضافة</th>
               <th style={th}>إجراءات</th>
             </tr>
             </thead>
             <tbody>
             {filtered.length === 0 ? (
-                <tr><td colSpan={isAdmin ? 4 : 4}><div className="empty-state"><i className={`fas ${isAdmin ? 'fa-shield-alt' : 'fa-user-tie'}`} /><p>{isAdmin ? 'لا يوجد مسؤولون بعد' : 'لا يوجد مديرون بعد'}</p></div></td></tr>
+                <tr><td colSpan={isAdmin ? 4 : 5}><div className="empty-state"><i className={`fas ${isAdmin ? 'fa-shield-alt' : 'fa-user-tie'}`} /><p>{isAdmin ? 'لا يوجد مسؤولون بعد' : 'لا يوجد مديرون بعد'}</p></div></td></tr>
             ) : filtered.map(u => {
               const _rb = getRoleBadge(u.role)
               const isCurrent = u.user_id === currentUserId
@@ -362,12 +473,16 @@ function UsersTable({ users, role, currentUserId, onEdit, onDelete }) {
                     )}
                     {isAdmin && (
                         <td style={td}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f5f3ff', color: '#7c3aed', padding: '3px 10px', borderRadius: 20, fontSize: '.73rem', fontWeight: 700 }}>
-                            <i className="fas fa-shield-alt" style={{ fontSize: '.65rem' }} /> ADMIN
-                          </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f5f3ff', color: '#7c3aed', padding: '3px 10px', borderRadius: 20, fontSize: '.73rem', fontWeight: 700 }}>
+                        <i className="fas fa-shield-alt" style={{ fontSize: '.65rem' }} /> ADMIN
+                      </span>
                         </td>
                     )}
-                    {/* ✅ حذف خلية الإيراد */}
+                    {!isAdmin && (
+                        <td style={td}>
+                          {u.zone_revenue > 0 ? <strong style={{ color: '#10b981' }}>{(u.zone_revenue / 1000).toFixed(0)}K دج</strong> : <span style={{ color: '#94a3b8' }}>—</span>}
+                        </td>
+                    )}
                     <td style={{ ...td, fontSize: '.8rem', color: '#64748b' }}>{formatDate(u.created_at)}</td>
                     <td style={td}>
                       {isCurrent ? (
@@ -399,13 +514,18 @@ function EditModal({ target, zones, onClose, onSave }) {
   const [zoneId, setZoneId]     = useState('')
 
   useEffect(() => {
-    if (target) { setZoneId(String(target.assigned_zone || target.zone_id || '')); setNewPass(''); setShowPass(false) }
+    if (target) {
+      setZoneId(String(target.assigned_zone || ''))
+      setNewPass('')
+      setShowPass(false)
+    }
   }, [target])
 
-  if (!target) return null
+  if (!target) return null   // ✅ الآن بعد الـ Hooks
 
   const isAdmin = target.role === 'ADMIN'
   const accentColor = isAdmin ? '#8b5cf6' : '#6366f1'
+
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -414,7 +534,7 @@ function EditModal({ target, zones, onClose, onSave }) {
       full_name: fd.get('fname'),
       email:     fd.get('email'),
       phone:     fd.get('phone'),
-      zone_id:   zoneId || 'NULL',
+      zone_id:   zoneId || 'NULL',   // ← zone_id وليس assigned_zone
       zone_name: zones.find(z => String(z.zone_id) === zoneId)?.zone_name || '',
       password:  newPass || null,
     })
@@ -436,8 +556,9 @@ function EditModal({ target, zones, onClose, onSave }) {
             تعديل: <strong>{target.full_name}</strong>
           </div>
           <form onSubmit={handleSubmit} autoComplete="off">
-            <input type="text" style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
-            <input type="email" style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
+            {/* حقول وهمية تخدع المتصفح وتمنعه من ملء الحقول الحقيقية */}
+            <input type="text"   style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
+            <input type="email"  style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
             <input type="password" style={{ display:'none' }} aria-hidden="true" tabIndex={-1} readOnly />
             <div style={frow}>
               <div className="form-group">
@@ -454,10 +575,15 @@ function EditModal({ target, zones, onClose, onSave }) {
                 <label className="form-label">رقم الهاتف</label>
                 <input className="form-input" name="phone" defaultValue={target.phone} autoComplete="new-password" data-lpignore="true" data-form-type="other" />
               </div>
+              {/* ✅ Combobox في modal التعديل أيضاً */}
               {!isAdmin && (
                   <div className="form-group">
                     <label className="form-label">الموقف المسند</label>
-                    <ZoneCombobox zones={zones.filter(z => z.is_active)} value={zoneId} onChange={setZoneId} />
+                    <ZoneCombobox
+                        zones={zones.filter(z => z.is_active)}
+                        value={zoneId}
+                        onChange={setZoneId}
+                    />
                   </div>
               )}
             </div>
@@ -490,9 +616,9 @@ function EditModal({ target, zones, onClose, onSave }) {
 export default function PageUsers() {
   const { user: currentUser } = useAuth()
   const { users, zones, managers, admins, addUser, updateUser, deleteUser } = useData()
-  const [activeTab, setActiveTab]       = useState('managers')
-  const [msg, setMsg]                   = useState({ text: '', ok: false })
-  const [editTarget, setEditTarget]     = useState(null)
+  const [activeTab, setActiveTab]     = useState('managers')
+  const [msg, setMsg]                 = useState({ text: '', ok: false })
+  const [editTarget, setEditTarget]   = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
 
   const showMsg = (text, ok = true) => {
@@ -529,10 +655,10 @@ export default function PageUsers() {
         {/* ── KPI ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 24 }}>
           {[
-            { icon: 'fa-users',          val: users.length,    label: 'إجمالي الحسابات',  border: '#6366f1', bg: '#eff6ff', ic: '#6366f1' },
-            { icon: 'fa-shield-alt',     val: admins.length,   label: 'مسؤولون (ADMIN)',  border: '#8b5cf6', bg: '#f5f3ff', ic: '#8b5cf6' },
-            { icon: 'fa-user-tie',       val: managers.length, label: 'مديرون (MANAGER)', border: '#10b981', bg: '#f0fdf4', ic: '#10b981' },
-            { icon: 'fa-map-marked-alt', val: managers.filter(m => m.zone_id || m.assigned_zone || m.zone_name).length, label: 'مرتبطون بموقف', border: '#f59e0b', bg: '#fff7ed', ic: '#f59e0b' },
+            { icon: 'fa-users',          val: users.length,                                 label: 'إجمالي الحسابات',   border: '#6366f1', bg: '#eff6ff', ic: '#6366f1' },
+            { icon: 'fa-shield-alt',     val: admins.length,                                label: 'مسؤولون (ADMIN)',   border: '#8b5cf6', bg: '#f5f3ff', ic: '#8b5cf6' },
+            { icon: 'fa-user-tie',       val: managers.length,                              label: 'مديرون (MANAGER)',  border: '#10b981', bg: '#f0fdf4', ic: '#10b981' },
+            { icon: 'fa-map-marked-alt', val: managers.filter(m => m.assigned_zone).length, label: 'مرتبطون بموقف',   border: '#f59e0b', bg: '#fff7ed', ic: '#f59e0b' },
           ].map(k => (
               <div key={k.label} style={{ background: 'white', borderRadius: 14, padding: '18px 20px', border: '1px solid var(--border)', borderTop: `4px solid ${k.border}`, boxShadow: '0 2px 10px rgba(0,0,0,.04)', display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div style={{ width: 46, height: 46, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0, background: k.bg, color: k.ic }}>
@@ -549,7 +675,7 @@ export default function PageUsers() {
         {/* ── التبويبات ── */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 22, background: '#f8fafc', padding: 6, borderRadius: 12, border: '1px solid var(--border)', width: 'fit-content' }}>
           {[
-            { key: 'managers', icon: 'fa-user-tie',   label: 'المديرون',  count: managers.length, color: '#10b981' },
+            { key: 'managers', icon: 'fa-user-tie',   label: 'المديرون',   count: managers.length, color: '#10b981' },
             { key: 'admins',   icon: 'fa-shield-alt', label: 'المسؤولون', count: admins.length,   color: '#8b5cf6' },
           ].map(tab => (
               <button key={tab.key} onClick={() => setActiveTab(tab.key)}

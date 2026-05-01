@@ -15,15 +15,25 @@ const toDateStr = (ts) => {
     return d ? d.toISOString().slice(0, 10) : ''
 }
 
-export default function PageStats({ allSpots = [], spotsLoaded = false }) {
-    const { users, zones, reservations } = useData()
-    // ✅ allSpots و spotsLoaded تأتي من AdminDashboard (مشتركة مع PageZones)
+export default function PageStats() {
+    const { users, zones, reservations, spots, loading } = useData()
 
+    // عرض سبينر فقط عندما تكون البيانات قيد التحميل من Firebase
+    // في وضع الضيف loading سيكون false مباشرة
+    if (loading) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400, gap: 16 }}>
+                <div className="spinner" style={{ width: 44, height: 44, borderWidth: 4 }} />
+                <div style={{ color: '#94a3b8', fontSize: '0.9rem', fontFamily: 'Tajawal, sans-serif' }}>جارٍ تحميل الإحصائيات...</div>
+            </div>
+        )
+    }
+
+    // الحسابات مباشرة من spots (أماكن الوقوف الفعلية أو الوهمية)
     const s = useMemo(() => {
-        // ✅ من الأماكن الفعلية
-        const totalSpots     = allSpots.length
-        const occupiedSpots  = allSpots.filter(s => s.status === 'OCCUPIED').length
-        const availableSpots = allSpots.filter(s => s.status === 'AVAILABLE').length
+        const totalSpots     = spots.length
+        const occupiedSpots  = spots.filter(s => s.status === 'OCCUPIED').length
+        const availableSpots = spots.filter(s => s.status === 'AVAILABLE').length
         const occupancyRate  = totalSpots > 0 ? ((occupiedSpots / totalSpots) * 100).toFixed(1) : 0
 
         const activeRes    = reservations.filter(r => r.status === 'active').length
@@ -56,7 +66,7 @@ export default function PageStats({ allSpots = [], spotsLoaded = false }) {
             totalRevenue, todayRevenue, weekRevenue, monthRevenue, avgRevPerRes,
             totalUsers: users.length, totalManagers, totalDrivers,
         }
-    }, [users, zones, allSpots, reservations])
+    }, [users, zones, spots, reservations])
 
     const trafficByHour = useMemo(() => {
         const counts = {}
@@ -93,16 +103,6 @@ export default function PageStats({ allSpots = [], spotsLoaded = false }) {
         { name: 'مشغول', value: s.occupiedSpots,  fill: '#ef4444' },
         { name: 'متاح',  value: s.availableSpots, fill: '#10b981' },
     ]
-
-    // ✅ عرض spinner ريثما تُحمَّل البيانات — يمنع ظهور أصفار مؤقتة
-    if (!spotsLoaded) {
-        return (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400, gap: 16 }}>
-                <div className="spinner" style={{ width: 44, height: 44, borderWidth: 4 }} />
-                <div style={{ color: '#94a3b8', fontSize: '0.9rem', fontFamily: 'Tajawal, sans-serif' }}>جارٍ تحميل الإحصائيات...</div>
-            </div>
-        )
-    }
 
     return (
         <div className="fade-in">

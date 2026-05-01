@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 import React, { useState, useEffect } from 'react'
 import { db } from '../firebase'
-import { collection, query, where, getDocs, getDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { SPOT_COLOR, SPOT_LABEL, TYPE_LABEL } from '../utils/constants_manager'
 
 // ── مكوّنات مساعدة ──
@@ -54,16 +54,16 @@ export function SpotStatusModal({ spot, onClose, onConfirm, loading, myZone }) {
     const [spotLat,     setSpotLat]     = useState('')
     const [spotLng,     setSpotLng]     = useState('')
     const [coordSaving, setCoordSaving] = useState(false)
-    const [showCoords,  setShowCoords]  = useState(false)
+    const [showCoords,  setShowCoords]  = useState(false)   // ✅ FIX: missing state
 
     // ── حقول التسعير اليدوي ──
     const [rateType, setRateType] = useState('hourly')  // 'hourly' | 'daily' | 'weekly'
     const [duration, setDuration] = useState(1)
 
-    // ── عند فتح مكان محجوز أو مشغول: جلب بيانات الحجز ──
+    // ── عند فتح مكان محجوز: جلب بيانات الحجز ──
     useEffect(() => {
         if (!spot) { setStep('options'); return }
-        if (spot.status === 'RESERVED' || spot.status === 'OCCUPIED') {
+        if (spot.status === 'RESERVED') {
             setStep('reserved')
             setResLoading(true)
             setResData(null)
@@ -71,7 +71,6 @@ export function SpotStatusModal({ spot, onClose, onConfirm, loading, myZone }) {
                 try {
                     const q = query(
                         collection(db, 'reservations'),
-                        where('zone_id', '==', myZone.zone_id),
                         where('spot_id', '==', spot.spot_id),
                         where('status', 'in', ['confirmed', 'CONFIRMED', 'active', 'pending', 'PENDING'])
                     )
@@ -82,27 +81,7 @@ export function SpotStatusModal({ spot, onClose, onConfirm, loading, myZone }) {
                             const tb = b.data().created_at?.toMillis?.() || 0
                             return tb - ta
                         })
-                        const resDocData = sorted[0].data()  // ✅ إصلاح: تعريف المتغير هنا
-
-                        // ✅ جلب رقم الهاتف والاسم من users باستخدام user_id
-                        let phone = resDocData.phone || ''
-                        let fullName = resDocData.full_name || resDocData.user_name || ''
-                        const userId = resDocData.user_id
-                        if (userId && userId !== 'WALK_IN') {
-                            try {
-                                const userSnap = await getDoc(doc(db, 'users', userId))
-                                if (userSnap.exists()) {
-                                    const u = userSnap.data()
-                                    if (!phone) phone = u.phone || u.phone_number || u.mobile || ''
-                                    if (u.full_name) fullName = u.full_name
-                                    else if (!fullName) fullName = u.name || u.user_name || ''
-                                }
-                            } catch (e) {
-                                console.warn('جلب بيانات المستخدم فشل:', e.message)
-                            }
-                        }
-
-                        setResData({ ...resDocData, phone, full_name: fullName })
+                        setResData(sorted[0].data())
                         setResId(sorted[0].id)
                     }
                 } catch (err) {
@@ -162,7 +141,7 @@ export function SpotStatusModal({ spot, onClose, onConfirm, loading, myZone }) {
 
     const handleOptionClick = (value) => {
         if (value === spot.status) return
-        if (value === 'OCCUPIED'  && (spot.status === 'AVAILABLE' || spot.status === 'MAINTENANCE')) { setStep('form');     return }
+        if (value === 'OCCUPIED'  && spot.status === 'AVAILABLE') { setStep('form');     return }
         if (value === 'AVAILABLE' && spot.status === 'OCCUPIED')  { setStep('checkout'); return }
         onConfirm(spot, value, {})
     }
@@ -258,11 +237,9 @@ export function SpotStatusModal({ spot, onClose, onConfirm, loading, myZone }) {
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                             <InfoRow icon="fa-calendar-plus"  label="وقت الحجز"   value={fmtTime(resData.created_at)} wide />
-                            {/* ✅ استخدام start_time وإن لم يوجد فـ created_at لضمان وقت بدء فعلي */}
-                            <InfoRow icon="fa-play-circle"    label="بداية الحجز" value={fmtTime(resData.start_time || resData.created_at)} wide />
+                            <InfoRow icon="fa-play-circle"    label="بداية الحجز" value={fmtTime(resData.start_time)} wide />
                             <InfoRow icon="fa-stop-circle"    label="نهاية الحجز" value={fmtTime(resData.end_time)}   wide />
-                            {/* ✅ تمرير start_time || created_at لحساب المدة الصحيح */}
-                            <InfoRow icon="fa-hourglass-half" label="المدة"       value={calcDuration(resData.start_time || resData.created_at, resData.end_time) || '—'} />
+                            <InfoRow icon="fa-hourglass-half" label="المدة"       value={calcDuration(resData.start_time, resData.end_time) || '—'} />
                             <InfoRow icon="fa-money-bill"     label="التكلفة"     value={resData.total_cost != null ? `${resData.total_cost} دج` : '—'} valueColor="#10b981" />
                         </div>
                     </div>

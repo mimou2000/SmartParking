@@ -1,16 +1,9 @@
 // ══════════════════════════════════════════════════════
 //  src/pages_manager_dashboard/PageSpots.jsx
-//  ✅ إصلاح 3 أخطاء Firestore Permission:
-//     1. حذف total_cost/total_price من updateDoc (غير مسموح للـ MANAGER)
-//     2. دمج reservation_id داخل setDoc مباشرةً بدلاً من updateDoc منفصل
-//     3. إضافة zone_id في query الحجوزات لضمان توافق Rules
 // ══════════════════════════════════════════════════════
 import React, { useState, useEffect } from 'react'
 import { db } from '../firebase'
-import {
-    collection, doc, setDoc, updateDoc,
-    serverTimestamp, query, where, getDocs,
-} from 'firebase/firestore'
+import { collection, addDoc, doc, updateDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore'
 import { spotsAPI } from '../api/firebaseApi'
 import { SpotStatusModal } from './SpotStatusModal'
 import { SPOT_COLOR, SPOT_LABEL, TYPE_LABEL, S } from '../utils/constants_manager'
@@ -24,15 +17,13 @@ export function PageSpots({ myZone, spots, setSpots }) {
     const [showAddForm,   setShowAddForm]   = useState(false)
     const [addSaving,     setAddSaving]     = useState(false)
     const [addForm,       setAddForm]       = useState({ spot_type: 'STANDARD', count: 1 })
-    const [enrichedSpots, setEnrichedSpots] = useState([])
+    const [enrichedSpots, setEnrichedSpots] = useState([])   // ← الأماكن بعد دمج الحجوزات
 
-    const showMsg = (text, ok = true) => {
-        setMsg({ text, ok })
-        setTimeout(() => setMsg({ text: '', ok: false }), 4000)
-    }
+    const showMsg = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg({ text: '', ok: false }), 4000) }
 
     // ══════════════════════════════════════════════════
     //  دمج حالة الحجوزات من تطبيق الهاتف مع الأماكن
+    //  يُشغَّل كلما تغيّرت قائمة الـ spots أو المنطقة
     // ══════════════════════════════════════════════════
     useEffect(() => {
         if (!spots.length || !myZone?.zone_id) {
@@ -42,18 +33,23 @@ export function PageSpots({ myZone, spots, setSpots }) {
 
         const syncReservations = async () => {
             try {
-                // ✅ إصلاح 3: الـ query يفلتر بـ zone_id أولاً لضمان توافق Firestore Rules
-                // القاعدة تسمح للـ MANAGER فقط بقراءة حجوزات منطقته
+                const now = new Date()
+
+                // جلب الحجوزات النشطة أو المؤكدة للمنطقة
                 const q = query(
                     collection(db, 'reservations'),
                     where('zone_id', '==', myZone.zone_id),
-                    where('status',  'in', ['pending', 'confirmed', 'CONFIRMED', 'active'])
+                    where('status', 'in', ['confirmed', 'CONFIRMED', 'active'])
                 )
                 const snap = await getDocs(q)
 
+                // جمع spot_ids التي عليها حجز confirmed أو active — بغض النظر عن الوقت
                 const reservedSpotIds = new Set()
-                snap.docs.forEach(d => reservedSpotIds.add(d.data().spot_id))
+                snap.docs.forEach(d => {
+                    reservedSpotIds.add(d.data().spot_id)
+                })
 
+                // دمج الحالة الحقيقية: إذا المكان AVAILABLE لكن عليه حجز → RESERVED
                 const merged = spots.map(s => {
                     if (reservedSpotIds.has(s.spot_id) && s.status === 'AVAILABLE') {
                         return { ...s, status: 'RESERVED' }
@@ -64,7 +60,7 @@ export function PageSpots({ myZone, spots, setSpots }) {
                 setEnrichedSpots(merged)
             } catch (err) {
                 console.error('syncReservations error:', err)
-                setEnrichedSpots(spots)
+                setEnrichedSpots(spots) // fallback: اعرض الأماكن كما هي
             }
         }
 
@@ -77,61 +73,10 @@ export function PageSpots({ myZone, spots, setSpots }) {
     const changeStatus = async (spot, newStatus, extraData = {}) => {
         setChanging(spot.spot_id)
         try {
-
-            // ── حالة مشغول من محجوز (تطبيق): فعّل الحجز الموجود بدلاً من إنشاء جديد ──
-            if (newStatus === 'OCCUPIED' && spot.status === 'RESERVED') {
-                const now = new Date()
-                const q = query(
-                    collection(db, 'reservations'),
-                    where('zone_id', '==', myZone.zone_id),
-                    where('spot_id', '==', spot.spot_id),
-                    where('status',  'in', ['pending', 'confirmed', 'CONFIRMED'])
-                )
-                const snap = await getDocs(q)
-                if (!snap.empty) {
-                    // ✅ الحجز موجود — حوّله إلى active مع تسجيل وقت الدخول الفعلي
-                    const sorted = snap.docs.sort((a, b) =>
-                        (b.data().created_at?.toMillis?.() || 0) - (a.data().created_at?.toMillis?.() || 0)
-                    )
-                    await updateDoc(doc(db, 'reservations', sorted[0].id), {
-                        status:      'active',
-                        start_time:  now,       // ← وقت الدخول الفعلي للسيارة
-                        updated_at:  serverTimestamp(),
-                    })
-                } else {
-                    // ⚠️ لم يُوجد حجز مؤكد — أنشئ واحداً يدوياً كاحتياط
-                    const newRef = doc(collection(db, 'reservations'))
-                    await setDoc(newRef, {
-                        reservation_id: newRef.id,
-                        spot_id:        spot.spot_id,
-                        spot_number:    spot.spot_number,
-                        zone_id:        myZone.zone_id,
-                        zone_name:      myZone.zone_name || '',
-                        user_id:        'WALK_IN',
-                        full_name:      'زائر',
-                        vehicle_number: '',
-                        rate_type:      'hourly',
-                        duration:       1,
-                        source:         'MANUAL',
-                        status:         'active',
-                        start_time:     now,
-                        end_time:       null,
-                        total_cost:     0,
-                        total_price:    0,
-                        created_at:     serverTimestamp(),
-                    })
-                }
-            }
-
-            // ── حالة مشغول يدوياً (AVAILABLE أو MAINTENANCE): أنشئ reservation جديد ──
-            if (newStatus === 'OCCUPIED' && (spot.status === 'AVAILABLE' || spot.status === 'MAINTENANCE')) {
-                const now = new Date()
-
-                // ✅ إصلاح 2: استخدم setDoc مع ref مُنشأ مسبقاً لدمج reservation_id
-                // في نفس العملية — بدلاً من addDoc ثم updateDoc منفصل كان يسبب Permission Denied
-                const newRef = doc(collection(db, 'reservations'))
-                await setDoc(newRef, {
-                    reservation_id: newRef.id,           // ← مدموج هنا مباشرةً ✅
+            // ── حالة مشغول يدوياً: أنشئ reservation جديد ──
+            if (newStatus === 'OCCUPIED' && (spot.status === 'AVAILABLE' || spot.status === 'RESERVED')) {
+                const now    = new Date()
+                const newRef = await addDoc(collection(db, 'reservations'), {
                     spot_id:        spot.spot_id,
                     spot_number:    spot.spot_number,
                     zone_id:        myZone.zone_id,
@@ -149,6 +94,10 @@ export function PageSpots({ myZone, spots, setSpots }) {
                     total_price:    extraData.total_cost || 0,
                     created_at:     serverTimestamp(),
                 })
+                // ✅ حفظ reservation_id في نفس الوثيقة لتتوافق مع PageReservations
+                await updateDoc(doc(db, 'reservations', newRef.id), {
+                    reservation_id: newRef.id,
+                })
             }
 
             // ── حالة متاح من مشغول: إنهاء أو إلغاء ──
@@ -156,12 +105,12 @@ export function PageSpots({ myZone, spots, setSpots }) {
                 const isCancel = extraData.action === 'cancel'
                 const q = query(
                     collection(db, 'reservations'),
-                    where('zone_id',  '==', myZone.zone_id), // ✅ إصلاح 3: zone_id أولاً
-                    where('spot_id',  '==', spot.spot_id),
-                    where('status',   '==', 'active')
+                    where('spot_id', '==', spot.spot_id),
+                    where('status',  '==', 'active')
                 )
                 const snap = await getDocs(q)
                 if (!snap.empty) {
+                    // ترتيب يدوي بدلاً من orderBy لتجنب الحاجة إلى index مركّب
                     const sorted  = snap.docs.sort((a, b) => {
                         const ta = a.data().created_at?.toMillis?.() || 0
                         const tb = b.data().created_at?.toMillis?.() || 0
@@ -171,19 +120,23 @@ export function PageSpots({ myZone, spots, setSpots }) {
                     const endTime = new Date()
 
                     if (isCancel) {
-                        // ✅ إصلاح 1: حذف total_cost و total_price — ممنوع على MANAGER
-                        // الـ Rules تسمح فقط بـ ['status','end_time','updated_at','zone_id']
                         await updateDoc(doc(db, 'reservations', resDoc.id), {
-                            status:     'cancelled',
-                            end_time:   endTime,
-                            updated_at: serverTimestamp(),
+                            status:      'cancelled',
+                            end_time:    endTime,
+                            total_cost:  0,
+                            total_price: 0,
+                            updated_at:  serverTimestamp(),
                         })
                     } else {
-                        // ✅ إصلاح 1: حذف total_cost و total_price من هنا أيضاً
+                        const startTime = resDoc.data().start_time?.toDate?.() || new Date()
+                        const hours     = Math.max((endTime - startTime) / 3600000, 0.25)
+                        const cost      = parseFloat((hours * (myZone.hourly_rate || 0)).toFixed(2))
                         await updateDoc(doc(db, 'reservations', resDoc.id), {
-                            status:     'completed',
-                            end_time:   endTime,
-                            updated_at: serverTimestamp(),
+                            status:      'completed',
+                            end_time:    endTime,
+                            total_cost:  cost,
+                            total_price: cost,
+                            updated_at:  serverTimestamp(),
                         })
                     }
                 }
@@ -194,9 +147,8 @@ export function PageSpots({ myZone, spots, setSpots }) {
                 const now = new Date()
                 const q = query(
                     collection(db, 'reservations'),
-                    where('zone_id',  '==', myZone.zone_id), // ✅ إصلاح 3: zone_id أولاً
-                    where('spot_id',  '==', spot.spot_id),
-                    where('status',   'in', ['pending', 'confirmed', 'CONFIRMED'])
+                    where('spot_id', '==', spot.spot_id),
+                    where('status', 'in', ['confirmed', 'CONFIRMED'])
                 )
                 const snap = await getDocs(q)
                 if (!snap.empty) {
@@ -245,8 +197,8 @@ export function PageSpots({ myZone, spots, setSpots }) {
         if (!count || count < 1 || count > 50) { showMsg('العدد يجب أن يكون بين 1 و 50', false); return }
         setAddSaving(true)
 
-        const typeLetters  = { STANDARD: 'A', VIP: 'B', MOTORCYCLE: 'C', DISABLED: 'D', ELECTRIC: 'E' }
-        const letter       = typeLetters[addForm.spot_type] || 'A'
+        const typeLetters = { STANDARD: 'A', VIP: 'B', MOTORCYCLE: 'C', DISABLED: 'D', ELECTRIC: 'E' }
+        const letter      = typeLetters[addForm.spot_type] || 'A'
         const existingNums = spots
             .filter(s => s.spot_type === addForm.spot_type)
             .map(s => { const m = s.spot_number.match(/(\d+)$/); return m ? parseInt(m[1]) : 0 })
@@ -277,6 +229,7 @@ export function PageSpots({ myZone, spots, setSpots }) {
         maintenance: enrichedSpots.filter(s => s.status === 'MAINTENANCE').length,
     }
 
+    // ✅ ترتيب ذكي: حسب الحرف أولاً ثم الرقم (A-1, A-2, B-1, B-2...)
     const sortSpots = (arr) => [...arr].sort((a, b) => {
         const parse = (num) => {
             const m = (num || '').match(/^([A-Za-z]+)-?(\d+)$/)

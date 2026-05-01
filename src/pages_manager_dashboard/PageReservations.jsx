@@ -1,19 +1,17 @@
 // ══════════════════════════════════════════════════════
 //  src/pages_manager_dashboard/PageReservations.jsx
-//  ✅ الإصلاح: عرض الحجوزات حتى للقديمة التي بدون zone_id
-//             + زر ترحيل للأدمن لإصلاح البيانات القديمة
+//  ✅ استخدام DataContext و AuthContext بدلاً من props
 // ══════════════════════════════════════════════════════
 
 import React, { useState } from 'react';
 import { useData } from '../context/useData';
 import { useAuth } from '../context/useAuth';
 import { STATUS_LABELS, STATUS_BADGE, toDate } from '../utils/constants_manager';
-import { reservationsAPI } from '../api/firebaseApi';
 
 export function PageReservations() {
     const { user } = useAuth();
     const {
-        reservations,
+        reservations,        // جميع الحجوزات من Firestore
         confirmReservation,
         cancelReservation,
         completeReservation
@@ -23,22 +21,17 @@ export function PageReservations() {
     const [filter, setFilter] = useState('');
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(null);
-    const [migrating, setMigrating] = useState(false);
 
     const showMsg = (text, ok = true) => {
         setMsg({ text, ok });
         setTimeout(() => setMsg({ text: '', ok: false }), 4000);
     };
 
-    // ✅ الإصلاح الرئيسي:
-    // المدير يرى حجوزات منطقته (zone_id مطابق)
-    // + الحجوزات القديمة التي لا تحتوي على zone_id أصلاً (بدل إخفائها)
-    const myReservations = user?.role === 'MANAGER'
-        ? reservations.filter(r =>
-            r.zone_id === user?.zone_id ||   // حجوزات منطقته ✅
-            !r.zone_id                        // حجوزات قديمة بدون zone_id (مؤقتاً) ⚠️
-        )
-        : reservations;  // ADMIN يرى الكل
+    // تصفية الحجوزات حسب منطقة المدير (إذا كان MANAGER)
+    // في وضع الضيف: الحجوزات مُصفَّاة مسبقاً في DataProvider، نعرضها كلها
+    const myReservations = (user?.role === 'MANAGER' && !user?.isGuest)
+        ? reservations.filter(r => r.zone_id === user?.zone_id)
+        : reservations;  // ضيف مدير أو ADMIN يرى ما في الـ context مباشرةً
 
     const updateStatus = async (resId, newStatus) => {
         setLoading(resId);
@@ -48,7 +41,7 @@ export function PageReservations() {
             else if (newStatus === 'cancelled') await cancelReservation(resId);
             showMsg(
                 {
-                    confirmed: 'تم تأكيد دخول السيارة ✅',
+                    confirmed: 'تم تأكيد الحجز',
                     completed: 'تم إنهاء الحجز',
                     cancelled: 'تم إلغاء الحجز',
                 }[newStatus] || 'تم التحديث'
@@ -60,29 +53,11 @@ export function PageReservations() {
         }
     };
 
-    // ✅ دالة الترحيل: تُشغَّل مرة واحدة فقط من قِبَل الأدمن
-    //    تقرأ كل spot_id في الحجوزات القديمة وتجد zone_id المناسب
-    const handleMigrate = async () => {
-        if (!window.confirm('سيتم إضافة zone_id لكل الحجوزات القديمة. هل أنت متأكد؟')) return;
-        setMigrating(true);
-        try {
-            const result = await reservationsAPI.migrateZoneIds();
-            showMsg(`✅ تم ترحيل ${result.migrated} حجز بنجاح`);
-        } catch (err) {
-            showMsg('❌ فشل الترحيل: ' + err.message, false);
-        } finally {
-            setMigrating(false);
-        }
-    };
-
     const filtered = myReservations.filter(
         (r) =>
             (!filter || (r.status || '') === filter) &&
             (!search || (r.full_name || '').toLowerCase().includes(search.toLowerCase()))
     );
-
-    // عدد الحجوزات القديمة التي تحتاج ترحيل (للإشعار)
-    const withoutZoneCount = reservations.filter(r => !r.zone_id).length;
 
     return (
         <div className="fade-in">
@@ -91,39 +66,6 @@ export function PageReservations() {
                     <i className={`fas ${msg.ok ? 'fa-check-circle' : 'fa-exclamation-circle'}`} /> {msg.text}
                 </div>
             )}
-
-            {/* ✅ تحذير للأدمن عند وجود حجوزات بدون zone_id */}
-            {user?.role === 'ADMIN' && withoutZoneCount > 0 && (
-                <div style={{
-                    background: '#fffbeb',
-                    border: '1px solid #f59e0b',
-                    borderRadius: 10,
-                    padding: '12px 18px',
-                    marginBottom: 14,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 10,
-                    flexWrap: 'wrap',
-                }}>
-                    <span style={{ color: '#92400e', fontSize: '0.88rem' }}>
-                        <i className="fas fa-exclamation-triangle" style={{ marginLeft: 6 }} />
-                        يوجد <strong>{withoutZoneCount}</strong> حجز قديم بدون <code>zone_id</code> — المدراء لن يروا هذه الحجوزات
-                    </span>
-                    <button
-                        className="btn btn-sm"
-                        style={{ background: '#f59e0b', color: '#fff', fontWeight: 700 }}
-                        onClick={handleMigrate}
-                        disabled={migrating}
-                    >
-                        {migrating
-                            ? <><i className="fas fa-spinner fa-spin" /> جارٍ الترحيل...</>
-                            : <><i className="fas fa-magic" /> إصلاح البيانات القديمة</>
-                        }
-                    </button>
-                </div>
-            )}
-
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
                 <div style={{ padding: '18px 22px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
                     <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -145,61 +87,43 @@ export function PageReservations() {
                 <div className="table-wrap">
                     <table>
                         <thead>
-                        <tr><th>#</th><th>العميل</th><th>المكان</th><th>البدء</th><th>الانتهاء</th><th>التكلفة</th><th>الحالة</th><th>الإجراءات</th></tr>
+                            <tr><th>#</th><th>العميل</th><th>المكان</th><th>البدء</th><th>الانتهاء</th><th>التكلفة</th><th>الحالة</th><th>الإجراءات</th></tr>
                         </thead>
                         <tbody>
-                        {filtered.length === 0 ? (
-                            <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد حجوزات</td></tr>
-                        ) : (
-                            filtered.map((r, i) => {
-                                const startD = toDate(r.start_time || r.created_at);
-                                const endD = toDate(r.end_time);
-                                return (
-                                    <tr key={r.reservation_id || i}>
-                                        <td style={{ color: '#94a3b8' }}>{i + 1}</td>
-                                        <td><strong>{r.full_name || r.user_name || '—'}</strong>
-                                            {/* ✅ شارة لتمييز حجوزات التطبيق */}
-                                            {r.source === 'APP' && (
-                                                <span style={{ marginRight: 5, fontSize: '0.68rem', background: '#eff6ff', color: '#1d4ed8', padding: '1px 5px', borderRadius: 4, fontWeight: 700 }}>
-                                                        تطبيق
-                                                    </span>
-                                            )}
-                                        </td>
-                                        <td>
-                                            {r.spot_number || <span style={{ color: '#94a3b8' }}>—</span>}
-                                            {/* ⚠️ تحذير مرئي للحجوزات القديمة بدون zone_id */}
-                                            {!r.zone_id && (
-                                                <span title="هذا الحجز لا يحتوي على zone_id — شغّل الإصلاح من لوحة الأدمن"
-                                                      style={{ marginRight: 5, color: '#f59e0b', fontSize: '0.75rem' }}>
-                                                        <i className="fas fa-exclamation-triangle" />
-                                                    </span>
-                                            )}
-                                        </td>
-                                        <td style={{ fontSize: '0.78rem' }}>{startD ? startD.toLocaleString('ar-DZ') : '—'}</td>
-                                        <td style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                                            {endD ? endD.toLocaleString('ar-DZ') :
-                                                ['cancelled', 'CANCELLED'].includes(r.status || '') ? <span style={{ color: '#ef4444' }}>ملغي</span> :
-                                                    ['completed', 'COMPLETED'].includes(r.status || '') ? <span style={{ color: '#64748b' }}>—</span> :
-                                                        <span style={{ color: '#10b981' }}>جارٍ</span>}
-                                        </td>
-                                        <td><strong style={{ color: '#10b981' }}>{parseFloat(r.total_cost ?? r.total_price ?? 0).toFixed(2)} دج</strong></td>
-                                        <td><span className={`badge ${STATUS_BADGE[r.status || ''] || ''}`}>{STATUS_LABELS[r.status || ''] || (r.status || '—')}</span></td>
-                                        <td>
-                                            <div style={{ display: 'flex', gap: 5 }}>
-                                                {(r.status || '') === 'pending' &&
-                                                    <button className="btn btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => updateStatus(r.reservation_id, 'confirmed')} disabled={loading === r.reservation_id}>
-                                                        <i className="fas fa-car" /> {r.source === 'APP' ? 'تأكيد دخول السيارة' : 'تأكيد'}
-                                                    </button>}
-                                                {['active', 'confirmed', 'CONFIRMED'].includes(r.status || '') &&
-                                                    <button className="btn btn-sm" style={{ background: '#eff6ff', color: '#1d4ed8' }} onClick={() => updateStatus(r.reservation_id, 'completed')} disabled={loading === r.reservation_id}><i className="fas fa-flag-checkered" /> إنهاء</button>}
-                                                {['pending', 'confirmed', 'active'].includes(r.status || '') &&
-                                                    <button className="btn btn-sm" style={{ background: '#fef2f2', color: '#dc2626' }} onClick={() => updateStatus(r.reservation_id, 'cancelled')} disabled={loading === r.reservation_id}><i className="fas fa-times" /> إلغاء</button>}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })
-                        )}
+                            {filtered.length === 0 ? (
+                                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>لا توجد حجوزات</td></tr>
+                            ) : (
+                                filtered.map((r, i) => {
+                                    const startD = toDate(r.start_time || r.created_at);
+                                    const endD = toDate(r.end_time);
+                                    return (
+                                        <tr key={r.reservation_id || i}>
+                                            <td style={{ color: '#94a3b8' }}>{i + 1}</td>
+                                            <td><strong>{r.full_name || r.user_name || '—'}</strong></td>
+                                            <td>{r.spot_number || <span style={{ color: '#94a3b8' }}>—</span>}</td>
+                                            <td style={{ fontSize: '0.78rem' }}>{startD ? startD.toLocaleString('ar-DZ') : '—'}</td>
+                                            <td style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                                                {endD ? endD.toLocaleString('ar-DZ') :
+                                                    ['cancelled', 'CANCELLED'].includes(r.status || '') ? <span style={{ color: '#ef4444' }}>ملغي</span> :
+                                                        ['completed', 'COMPLETED'].includes(r.status || '') ? <span style={{ color: '#64748b' }}>—</span> :
+                                                            <span style={{ color: '#10b981' }}>جارٍ</span>}
+                                            </td>
+                                            <td><strong style={{ color: '#10b981' }}>{parseFloat(r.total_cost ?? r.total_price ?? 0).toFixed(2)} دج</strong></td>
+                                            <td><span className={`badge ${STATUS_BADGE[r.status || ''] || ''}`}>{STATUS_LABELS[r.status || ''] || (r.status || '—')}</span></td>
+                                            <td>
+                                                <div style={{ display: 'flex', gap: 5 }}>
+                                                    {(r.status || '') === 'pending' &&
+                                                        <button className="btn btn-sm" style={{ background: '#f0fdf4', color: '#15803d' }} onClick={() => updateStatus(r.reservation_id, 'confirmed')} disabled={loading === r.reservation_id}><i className="fas fa-check" /> تأكيد</button>}
+                                                    {['active', 'confirmed', 'CONFIRMED'].includes(r.status || '') &&
+                                                        <button className="btn btn-sm" style={{ background: '#eff6ff', color: '#1d4ed8' }} onClick={() => updateStatus(r.reservation_id, 'completed')} disabled={loading === r.reservation_id}><i className="fas fa-flag-checkered" /> إنهاء</button>}
+                                                    {['pending', 'confirmed', 'active'].includes(r.status || '') &&
+                                                        <button className="btn btn-sm" style={{ background: '#fef2f2', color: '#dc2626' }} onClick={() => updateStatus(r.reservation_id, 'cancelled')} disabled={loading === r.reservation_id}><i className="fas fa-times" /> إلغاء</button>}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
+                            )}
                         </tbody>
                     </table>
                 </div>

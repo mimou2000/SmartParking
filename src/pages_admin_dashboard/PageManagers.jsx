@@ -12,13 +12,12 @@ export default function PageManagers() {
     setTimeout(() => setMsg({ text: '', ok: false }), 4000)
   }
 
+  // ✅ إصلاح: تحويل Firebase Timestamp إلى تاريخ مقروء
   const formatDate = (ts) => {
     if (!ts) return '—'
     const date = ts?.toDate ? ts.toDate() : new Date(ts)
     return date.toISOString().slice(0, 10)
   }
-
-  const hasZone = (m) => !!(m.zone_id || m.assigned_zone || m.zone_name)
 
   const handleEdit = async (e) => {
     e.preventDefault()
@@ -69,10 +68,10 @@ export default function PageManagers() {
         {/* KPIs */}
         <div style={styles.kpiRow}>
           {[
-            { icon: 'fa-users',        val: managers.length,                          label: 'إجمالي المديرين', bg: '#eff6ff', ic: '#3b82f6', border: '#6366f1' },
-            { icon: 'fa-check-circle', val: managers.length,                          label: 'مديرون نشطون',   bg: '#f0fdf4', ic: '#10b981', border: '#10b981' },
-            { icon: 'fa-link',         val: managers.filter(hasZone).length,           label: 'مرتبطون بموقف', bg: '#fff7ed', ic: '#f59e0b', border: '#f59e0b' },
-            { icon: 'fa-clock',        val: managers.filter(m => !hasZone(m)).length,  label: 'بدون موقف',     bg: '#fef2f2', ic: '#ef4444', border: '#ef4444' },
+            { icon: 'fa-users',        val: managers.length,                               label: 'إجمالي المديرين', bg: '#eff6ff', ic: '#3b82f6', border: '#6366f1' },
+            { icon: 'fa-check-circle', val: managers.length,                               label: 'مديرون نشطون',   bg: '#f0fdf4', ic: '#10b981', border: '#10b981' },
+            { icon: 'fa-link',         val: managers.filter(m => m.assigned_zone).length,  label: 'مرتبطون بموقف', bg: '#fff7ed', ic: '#f59e0b', border: '#f59e0b' },
+            { icon: 'fa-clock',        val: managers.filter(m => !m.assigned_zone).length, label: 'بدون موقف',      bg: '#fef2f2', ic: '#ef4444', border: '#ef4444' },
           ].map(k => (
               <div key={k.label} style={{ ...styles.kpiCard, borderTopColor: k.border }}>
                 <div style={{ ...styles.kpiIcon, background: k.bg, color: k.ic }}><i className={`fas ${k.icon}`} /></div>
@@ -98,22 +97,18 @@ export default function PageManagers() {
           <div style={{ width: '100%', overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
               <colgroup>
-                <col style={{ width: '35%' }} />
-                <col style={{ width: '30%' }} />
-                <col style={{ width: '20%' }} />
-                <col style={{ width: '15%' }} />
+                <col style={{ width: '28%' }} /><col style={{ width: '22%' }} />
+                <col style={{ width: '15%' }} /><col style={{ width: '20%' }} /><col style={{ width: '15%' }} />
               </colgroup>
               <thead>
               <tr>
-                <th style={styles.th}>المدير</th>
-                <th style={styles.th}>الموقف المسند</th>
-                <th style={styles.th}>تاريخ الإضافة</th>
-                <th style={styles.th}>الإجراءات</th>
+                <th style={styles.th}>المدير</th><th style={styles.th}>الموقف المسند</th>
+                <th style={styles.th}>الإيراد</th><th style={styles.th}>تاريخ الإضافة</th><th style={styles.th}>الإجراءات</th>
               </tr>
               </thead>
               <tbody>
               {filtered.length === 0 ? (
-                  <tr><td colSpan={4}><div className="empty-state"><i className="fas fa-users" /><p>لا يوجد مديرون</p></div></td></tr>
+                  <tr><td colSpan={5}><div className="empty-state"><i className="fas fa-users" /><p>لا يوجد مديرون</p></div></td></tr>
               ) : filtered.map(m => (
                   <tr key={m.user_id} style={styles.tr}>
                     <td style={styles.td}>
@@ -128,11 +123,15 @@ export default function PageManagers() {
                     <td style={styles.td}>
                       {m.zone_name
                           ? <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '3px 10px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                              <i className="fas fa-parking" style={{ marginLeft: 4 }} />{m.zone_name}
-                            </span>
+                          <i className="fas fa-parking" style={{ marginLeft: 4 }} />{m.zone_name}
+                        </span>
                           : <span style={{ background: '#f8fafc', color: '#94a3b8', padding: '3px 10px', borderRadius: 20, fontSize: '0.75rem' }}>بدون تعيين</span>
                       }
                     </td>
+                    <td style={styles.td}>
+                      <strong style={{ color: '#10b981' }}>{((m.zone_revenue || 0) / 1000).toFixed(0)}K دج</strong>
+                    </td>
+                    {/* ✅ إصلاح: Firebase Timestamp → string */}
                     <td style={{ ...styles.td, fontSize: '0.8rem', color: '#64748b' }}>{formatDate(m.created_at)}</td>
                     <td style={styles.td}>
                       <div style={{ display: 'flex', gap: 6 }}>
@@ -177,7 +176,7 @@ export default function PageManagers() {
                     </div>
                     <div className="form-group">
                       <label className="form-label">الموقف المسند</label>
-                      <select className="form-select" name="zone" defaultValue={editModal.zone_id || editModal.assigned_zone || ''}>
+                      <select className="form-select" name="zone" defaultValue={editModal.assigned_zone || ''}>
                         <option value="">-- بدون تعيين --</option>
                         {zones.filter(z => z.is_active).map(z => <option key={z.zone_id} value={z.zone_id}>{z.zone_name}</option>)}
                       </select>

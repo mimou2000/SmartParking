@@ -1,6 +1,7 @@
 // ══════════════════════════════════════════════════════
 //  src/context/DataProvider.jsx
 //  ✅ متوافق مع واجهة spotsAPI.changeStatus (يتطلب zoneId)
+//  ✅ يدعم وضع الضيف للمدير عبر mockDataManager
 // ══════════════════════════════════════════════════════
 
 import React, { useState, useEffect, useCallback } from 'react'
@@ -10,21 +11,30 @@ import {
     statsAPI, zonesAPI, managersAPI, usersAPI,
     reservationsAPI, spotsAPI, realtimeAPI,
 } from '../api/firebaseApi.js'
+import {
+    mockZones, mockSpots, mockUsers, mockManagers,
+    mockReservations, computeMockStats,
+} from '../mock/mockData.js'
+import {
+    managerZone, managerSpots, managerReservations, managerUsers,
+    computeManagerStats, mockFeedbacksManager
+} from '../mock/mockDataManager'   // ✅ بيانات المدير الوهمية
 
 export function DataProvider({ children }) {
     const { user } = useAuth()
 
-    const [stats,        setStats]        = useState(null)
-    const [zones,        setZones]        = useState([])
-    const [managers,     setManagers]     = useState([])
-    const [users,        setUsers]        = useState([])
+    const [stats, setStats] = useState(null)
+    const [zones, setZones] = useState([])
+    const [managers, setManagers] = useState([])
+    const [users, setUsers] = useState([])
     const [reservations, setReservations] = useState([])
-    const [spots,        setSpots]        = useState([])
-    const [loading,      setLoading]      = useState(true)
-    const [error,        setError]        = useState(null)
+    const [spots, setSpots] = useState([])
+    const [feedbacks, setFeedbacks] = useState([])   // ✅ لدعم صفحة التقييمات
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState(null)
 
     // ══════════════════════════════════════════════════
-    //  FETCH FUNCTIONS
+    //  FETCH FUNCTIONS (تستخدم في المستخدم الحقيقي فقط)
     // ══════════════════════════════════════════════════
 
     const fetchStats = useCallback(async () => {
@@ -65,7 +75,7 @@ export function DataProvider({ children }) {
     const fetchSpots = useCallback(async () => {
         try {
             const zoneId = user?.role === 'MANAGER' ? user?.zone_id : null
-            const res    = await spotsAPI.getMySpots(zoneId)
+            const res = await spotsAPI.getMySpots(zoneId)
             if (res.ok) setSpots(res.spots || [])
         } catch (err) { console.error('fetchSpots:', err.message) }
     }, [user])
@@ -77,6 +87,46 @@ export function DataProvider({ children }) {
     useEffect(() => {
         if (!user) return
 
+        // ══════════════════════════════════════════════════
+        //  وضع الضيف: استخدام البيانات الوهمية بدل Firebase
+        // ══════════════════════════════════════════════════
+        if (user.isGuest) {
+            if (user.role === 'MANAGER') {
+                // ── ضيف مدير: بيانات مخصصة للمنطقة ──
+                setZones([managerZone])
+                setSpots(managerSpots)
+                setReservations(managerReservations)
+                setUsers(managerUsers)
+                setManagers(managerUsers)          // المديرين (نفسهم)
+                setStats(computeManagerStats(managerSpots, managerReservations))
+                setFeedbacks(mockFeedbacksManager)  // تقييمات وهمية
+            } else {
+                // ── ضيف مسؤول (ADMIN) أو أي دور آخر: البيانات العامة ──
+                const isManager = user.role === 'MANAGER'  // لن يحدث هنا لكن احتياط
+                const guestZoneId = user.zone_id
+
+                const filteredSpots = isManager
+                    ? mockSpots.filter(s => s.zone_id === guestZoneId)
+                    : mockSpots
+                const filteredReservations = isManager
+                    ? mockReservations.filter(r => r.zone_id === guestZoneId)
+                    : mockReservations
+
+                setStats(computeMockStats(mockZones, mockReservations))
+                setZones(mockZones)
+                setUsers(mockUsers)
+                setManagers(mockManagers)
+                setSpots(filteredSpots)
+                setReservations(filteredReservations)
+                setFeedbacks([])   // أو يمكن استخدام mockFeedbacks العادية
+            }
+            setLoading(false)
+            return // لا اشتراكات realtime ولا فترات تحديث
+        }
+
+        // ══════════════════════════════════════════════════
+        //  مستخدم حقيقي (متصل بـ Firebase)
+        // ══════════════════════════════════════════════════
         const init = async () => {
             setLoading(true)
             await Promise.all([fetchStats(), fetchUsers(), fetchManagers(), fetchSpots()])
@@ -85,8 +135,7 @@ export function DataProvider({ children }) {
         init()
 
         const unsubZones = realtimeAPI.subscribeZones((updatedZones) => setZones(updatedZones))
-        // ✅ تمرير zone_id للمدير حتى يعمل الـ query مع Firestore Rules
-        const unsubRes   = realtimeAPI.subscribeReservations(
+        const unsubRes = realtimeAPI.subscribeReservations(
             (updatedRes) => setReservations(updatedRes),
             user?.role === 'MANAGER' ? user?.zone_id : null
         )
@@ -111,27 +160,31 @@ export function DataProvider({ children }) {
 
     const admins = users.filter(u => u.role === 'ADMIN')
 
-    const managersEnriched = users.filter(u => u.role === 'MANAGER').map(u => {
-        const extra = managers.find(m => m.user_id === u.user_id)
-        if (!extra) return u
-
-        // ✅ إصلاح: دمج آمن — لا نكتب undefined فوق قيمة موجودة
-        const merged = { ...extra, ...u }
-
-        // ضمان حقول الموقف من أي مصدر متاح
-        merged.zone_id       = u.zone_id       || extra.zone_id       || null
-        merged.zone_name     = u.zone_name     || extra.zone_name     || ''
-        merged.assigned_zone = u.assigned_zone || extra.assigned_zone || u.zone_id || extra.zone_id || null
-
-        return merged
-    })
+    // في وضع الضيف: managers state تحتوي مباشرة على البيانات الوهمية → نستخدمها كما هي
+    // في وضع الحقيقي: ندمج users(MANAGER) مع managers لإثراء البيانات
+    const managersEnriched = user?.isGuest
+        ? managers
+        : users.filter(u => u.role === 'MANAGER').map(u => {
+            const extra = managers.find(m => m.user_id === u.user_id)
+            return extra ? { ...u, ...extra } : u
+        })
     const managersDisplay = managersEnriched.length > 0 ? managersEnriched : managers
+
+    // ══════════════════════════════════════════════════
+    //  GUEST GUARD: منع الكتابة على Firebase في وضع الضيف
+    // ══════════════════════════════════════════════════
+    const guestGuard = () => {
+        if (user?.isGuest) {
+            throw new Error('وضع الضيف: العمليات على البيانات معطّلة. سجّل دخولك بحساب فعلي للقيام بهذا الإجراء.')
+        }
+    }
 
     // ══════════════════════════════════════════════════
     //  ZONE ACTIONS
     // ══════════════════════════════════════════════════
 
     const createZone = async (data) => {
+        guestGuard()
         const res = await zonesAPI.create(data)
         if (!res.ok) throw new Error(res.message || 'فشل إنشاء الموقف')
         await fetchStats()
@@ -139,18 +192,21 @@ export function DataProvider({ children }) {
     }
 
     const updateZonePrice = async (zoneId, prices) => {
+        guestGuard()
         const res = await zonesAPI.updatePrice(zoneId, prices)
         if (!res.ok) throw new Error(res.message || 'فشل تحديث الأسعار')
         return res
     }
 
     const toggleZone = async (zoneId, activate) => {
+        guestGuard()
         const res = activate ? await zonesAPI.activate(zoneId) : await zonesAPI.deactivate(zoneId)
         if (!res.ok) throw new Error(res.message || 'فشل تغيير حالة الموقف')
         return res
     }
 
     const deleteZone = async (zoneId) => {
+        guestGuard()
         const res = await zonesAPI.delete(zoneId)
         if (!res.ok) throw new Error(res.message || 'فشل الحذف')
         await fetchStats()
@@ -166,13 +222,14 @@ export function DataProvider({ children }) {
         }
         return updateZonePrice(zoneId, {
             hourly_rate: data.hourly_rate,
-            daily_rate:  data.daily_rate  || null,
+            daily_rate: data.daily_rate || null,
             weekly_rate: data.weekly_rate || null,
         })
     }
 
     // ── Managers ──
     const addManager = async (data) => {
+        guestGuard()
         const res = await managersAPI.add(data)
         if (!res.ok) throw new Error(res.message)
         await fetchUsers(); await fetchManagers()
@@ -180,6 +237,7 @@ export function DataProvider({ children }) {
     }
 
     const updateManager = async (data) => {
+        guestGuard()
         const res = await managersAPI.edit(data)
         if (!res.ok) throw new Error(res.message)
         await fetchUsers(); await fetchManagers()
@@ -188,6 +246,7 @@ export function DataProvider({ children }) {
 
     // ── Users ──
     const addUser = async (data) => {
+        guestGuard()
         const res = await usersAPI.add(data)
         if (!res.ok) throw new Error(res.message)
         await fetchUsers(); await fetchManagers()
@@ -195,22 +254,15 @@ export function DataProvider({ children }) {
     }
 
     const updateUser = async (userId, data) => {
+        guestGuard()
         const res = await usersAPI.edit({ user_id: userId, ...data })
         if (!res.ok) throw new Error(res.message)
-        // إذا كانت البيانات تتضمن zone → نحدّث managers أيضاً
-        if (data.zone_id !== undefined || data.assigned_zone !== undefined) {
-            await managersAPI.edit({
-                user_id:       userId,
-                zone_id:       data.zone_id       ?? data.assigned_zone ?? null,
-                assigned_zone: data.assigned_zone ?? data.zone_id       ?? null,
-                zone_name:     data.zone_name     ?? '',
-            }).catch(() => {}) // silent: قد لا يكون في collection managers
-        }
         await fetchUsers(); await fetchManagers()
         return res
     }
 
     const deleteUser = async (userId) => {
+        guestGuard()
         if (userId === user?.uid) throw new Error('لا يمكنك حذف حسابك الحالي')
         const res = await usersAPI.delete(userId)
         if (!res.ok) throw new Error(res.message)
@@ -220,12 +272,14 @@ export function DataProvider({ children }) {
 
     // ── Reservations ──
     const confirmReservation = async (id) => {
+        guestGuard()
         const r = await reservationsAPI.confirm(id)
         if (!r.ok) throw new Error(r.message)
         return r
     }
 
     const cancelReservation = async (id) => {
+        guestGuard()
         const r = await reservationsAPI.cancel(id)
         if (!r.ok) throw new Error(r.message)
         await fetchStats()
@@ -233,6 +287,7 @@ export function DataProvider({ children }) {
     }
 
     const completeReservation = async (id) => {
+        guestGuard()
         const r = await reservationsAPI.complete(id)
         if (!r.ok) throw new Error(r.message)
         await fetchStats()
@@ -240,8 +295,8 @@ export function DataProvider({ children }) {
     }
 
     // ── Spots ──
-    // ✅ التعديل: إضافة zoneId كمعامل ثالث لتتوافق مع spotsAPI.changeStatus
     const changeSpotStatus = async (spotId, status, zoneId) => {
+        guestGuard()
         if (!zoneId) throw new Error('zoneId مطلوب لتغيير حالة المكان')
         const r = await spotsAPI.changeStatus(spotId, status, zoneId)
         if (!r.ok) throw new Error(r.message)
@@ -250,26 +305,27 @@ export function DataProvider({ children }) {
 
     // ── شاشة التحميل ──
     if (loading) return (
-        <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg)', flexDirection:'column', gap:14 }}>
-            <div style={{ width:44, height:44, border:'3px solid rgba(99,102,241,0.2)', borderTopColor:'#6366f1', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', flexDirection: 'column', gap: 14 }}>
+            <div style={{ width: 44, height: 44, border: '3px solid rgba(99,102,241,0.2)', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            <div style={{ color:'#64748b', fontSize:'0.9rem', fontFamily:'Tajawal, sans-serif' }}>جاري تحميل البيانات...</div>
+            <div style={{ color: '#64748b', fontSize: '0.9rem', fontFamily: 'Tajawal, sans-serif' }}>جاري تحميل البيانات...</div>
         </div>
     )
 
     return (
         <DataContext.Provider value={{
             stats, zones, managers: managersDisplay, admins, users,
-            reservations, spots, loading, error,
+            reservations, spots, feedbacks,    // ✅ أضفنا feedbacks
+            loading, error,
 
-            totalSpots:     stats?.total_spots     ?? 0,
+            totalSpots: stats?.total_spots ?? 0,
             availableSpots: stats?.available_spots ?? 0,
-            occupiedSpots:  stats?.occupied_spots  ?? 0,
-            occupancyRate:  stats?.occupancy_rate  ?? 0,
-            totalRevenue:   stats?.total_revenue   ?? 0,
-            todayRevenue:   stats?.today_revenue   ?? 0,
-            weekRevenue:    stats?.week_revenue    ?? 0,
-            monthRevenue:   stats?.month_revenue   ?? 0,
+            occupiedSpots: stats?.occupied_spots ?? 0,
+            occupancyRate: stats?.occupancy_rate ?? 0,
+            totalRevenue: stats?.total_revenue ?? 0,
+            todayRevenue: stats?.today_revenue ?? 0,
+            weekRevenue: stats?.week_revenue ?? 0,
+            monthRevenue: stats?.month_revenue ?? 0,
 
             fetchStats, fetchZones, fetchManagers, fetchUsers, fetchReservations, fetchSpots,
 
